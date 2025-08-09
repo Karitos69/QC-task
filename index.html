@@ -438,15 +438,16 @@
     import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     // החלף לערכים שלך במידת הצורך
-    const firebaseConfig = {
-      apiKey: "AIzaSyDLVGDemdsjcCUjeQWuA06NdDu5Qr9QI",
-      authDomain: "qc-task.firebaseapp.com",
-      projectId: "qc-task",
-      storageBucket: "qc-task.appspot.com",
-      messagingSenderId: "811038001243",
-      appId: "1:811038001243:web:17093b369a0b12389d77e",
-      measurementId: "G-V7WG3M18B1"
-    };
+    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
+  authDomain: "qc-task.firebaseapp.com",
+  projectId: "qc-task",
+  storageBucket: "qc-task.firebasestorage.app",
+  messagingSenderId: "811038001243",
+  appId: "1:811038001243:web:17093b369a0b12389ad77e",
+  measurementId: "G-V7WG3M18B1"
+};
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
