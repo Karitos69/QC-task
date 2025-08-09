@@ -34,7 +34,6 @@
     .cal-day.today{border-color:#111}
     .cal-day.selected{background:#111;color:#fff;border-color:#111}
     .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:6px}
-    /* Modal */
     .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none}
     .modal{position:fixed;inset-inline:0;top:8vh;margin-inline:auto;width:min(640px,92vw);background:#fff;border-radius:18px;border:1px solid var(--border);padding:16px 16px 14px;display:none}
     .backdrop.show,.modal.show{display:block}
@@ -172,7 +171,6 @@
 
     function startOfWeek(d){
       const r = new Date(d);
-      // week starts on Sunday
       const day = r.getDay(); // 0=Sunday
       r.setDate(r.getDate()-day);
       r.setHours(0,0,0,0);
@@ -188,7 +186,7 @@
       const endMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 0);
       const end = endOfWeek(endMonth);
       for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
-        const day = new Date(d); // ←←← חשוב: ליצור עותק נפרד לכל יום כדי למנוע באג סגירת-על (closure)
+        const day = new Date(d); // ← עותק לכל כפתור
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'cal-day';
@@ -202,6 +200,7 @@
           selectedDate = new Date(day);
           renderSelectedDate();
           renderCalendar();
+          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate)); // ← חיבור לענן
         });
         grid.appendChild(btn);
       }
@@ -267,7 +266,13 @@
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = t.status === STATUS.DONE;
-      cb.addEventListener('change',()=>{ t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll(); });
+      cb.addEventListener('change', async ()=>{
+        if (window.cloudUpdateTask) {
+          await window.cloudUpdateTask(t.id, { status: cb.checked? STATUS.DONE : STATUS.TODO });
+        } else {
+          t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll();
+        }
+      });
       const title = document.createElement('div');
       title.style.fontWeight = '600';
       title.textContent = t.title;
@@ -289,10 +294,22 @@
         const opt = document.createElement('option'); opt.value = val; opt.textContent = lab; select.appendChild(opt);
       }
       select.value = t.status;
-      select.addEventListener('change',()=>{ t.status = select.value; saveTasks(); renderAll(); });
+      select.addEventListener('change', async ()=>{
+        if (window.cloudUpdateTask) {
+          await window.cloudUpdateTask(t.id, { status: select.value });
+        } else {
+          t.status = select.value; saveTasks(); renderAll();
+        }
+      });
 
       const del = document.createElement('button'); del.className='btn'; del.textContent='מחיקה';
-      del.addEventListener('click',()=>{ tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll(); });
+      del.addEventListener('click', async ()=>{
+        if (window.cloudDeleteTask) {
+          await window.cloudDeleteTask(t.id);
+        } else {
+          tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll();
+        }
+      });
 
       right.append(select,del);
 
@@ -304,7 +321,14 @@
         for(const st of t.subtasks){
           const lab = document.createElement('label'); lab.className='row'; lab.style.gap='8px';
           const c = document.createElement('input'); c.type='checkbox'; c.checked = !!st.done;
-          c.addEventListener('change',()=>{ st.done = c.checked; saveTasks(); });
+          c.addEventListener('change', async ()=>{
+            if (window.cloudUpdateTask){
+              const newSubs = t.subtasks.map(s => s.id===st.id ? { ...s, done: c.checked } : s);
+              await window.cloudUpdateTask(t.id, { subtasks: newSubs });
+            } else {
+              st.done = c.checked; saveTasks();
+            }
+          });
           const sp = document.createElement('span'); sp.textContent = st.text; if(st.done) sp.classList.add('line-through','muted');
           lab.append(c,sp); stWrap.appendChild(lab);
         }
@@ -338,14 +362,27 @@
       document.getElementById('subtasks').appendChild(row);
     };
 
-    document.getElementById('saveTask').onclick = ()=>{
+    document.getElementById('saveTask').onclick = async () => {
       const title = document.getElementById('taskTitle').value.trim();
       const reminder = document.getElementById('taskReminder').value || null;
       const stEls = Array.from(document.querySelectorAll('#subtasks .subtask-row input'));
-      if(!title){ alert('נא להזין תיאור משימה'); return; }
-      const newTask = { id:uid(), title, date: toISODate(selectedDate), status: STATUS.TODO, reminder, subtasks: stEls.map(e=>({ id:uid(), text:e.value.trim(), done:false })).filter(s=>s.text!=='') };
-      tasks.push(newTask);
-      saveTasks();
+      if (!title) { alert('נא להזין תיאור משימה'); return; }
+
+      const newTask = { 
+        id: uid(), 
+        title, 
+        date: toISODate(selectedDate), 
+        status: STATUS.TODO, 
+        reminder, 
+        subtasks: stEls.map(e => ({ id: uid(), text: e.value.trim(), done: false })).filter(s => s.text !== '') 
+      };
+
+      // שמירה בענן (אם מחובר Firebase), אחרת לוקאלי
+      if (window.cloudAddTask) {
+        try { await window.cloudAddTask(newTask); }
+        catch (err) { console.error('שמירה ב-Firebase נכשלה:', err); tasks.push(newTask); saveTasks(); }
+      } else { tasks.push(newTask); saveTasks(); }
+
       closeModal();
       renderAll();
     };
@@ -356,6 +393,19 @@
     document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
     document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
 
+    // ===== Adapters לנתונים שמגיעים מהענן =====
+    window.renderTasksForSelected = (items) => {
+      const dateISO = toISODate(selectedDate);
+      tasks = tasks.filter(t => t.date !== dateISO).concat(items);
+      renderSelectedDate();
+      renderToday();
+    };
+    window.renderTasksForToday = (items) => {
+      const todayISO = toISODate(new Date());
+      tasks = tasks.filter(t => t.date !== todayISO).concat(items);
+      renderToday();
+    };
+
     // ===== Helpers =====
     function renderAll(){
       renderCalendar();
@@ -364,9 +414,9 @@
       renderReminders();
     }
 
-    function escapeHtml(s){ return s.replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+    function escapeHtml(s){ return s.replace(/[&<>\"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-    // ===== Init + carry-over logic =====
+    // ===== Init =====
     function init(){
       tasks = loadTasks();
       const last = loadLastOpened();
@@ -378,8 +428,77 @@
       currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       renderAll();
     }
-
     init();
+  </script>
+
+  <!-- ===== Firebase (בתוך ה-body לפני הסגירה) ===== -->
+  <script type="module" id="firebase-setup">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // החלף לערכים שלך במידת הצורך
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLVGDemdsjcCUjeQWuA06NdDu5Qr9QI",
+      authDomain: "qc-task.firebaseapp.com",
+      projectId: "qc-task",
+      storageBucket: "qc-task.appspot.com",
+      messagingSenderId: "811038001243",
+      appId: "1:811038001243:web:17093b369a0b12389d77e",
+      measurementId: "G-V7WG3M18B1"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+    const tasksCol = collection(db, "tasks");
+
+    function ensureAuth() {
+      return new Promise((resolve) => {
+        onAuthStateChanged(auth, async (user) => {
+          if (user) return resolve(user);
+          await signInAnonymously(auth);
+        });
+      });
+    }
+
+    // CRUD לענן — נחשף ל-UI הקיים
+    window.cloudAddTask = async (task) => {
+      const id = task.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+      await setDoc(doc(tasksCol, id), { ...task, id });
+      return id;
+    };
+    window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
+    window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
+    window.cloudRefreshReminders = async () => {
+      const now = new Date(), in7 = new Date(now.getTime()+7*24*60*60*1000);
+      const snap = await getDocs(tasksCol);
+      const items = [];
+      snap.forEach(d => {
+        const t = d.data();
+        if (!t.reminder) return;
+        const r = new Date(t.reminder);
+        if (r >= now && r <= in7) items.push(t);
+      });
+      items.sort((a,b)=> new Date(a.reminder)-new Date(b.reminder));
+      return items;
+    };
+
+    // האזנה חיה לפי תאריך
+    window.onSelectDate = (dateISO) => {
+      if (window._unsub) window._unsub();
+      const q = query(tasksCol, where("date", "==", dateISO));
+      window._unsub = onSnapshot(q, (snap) => {
+        const items = snap.docs.map(d => d.data());
+        if (window.renderTasksForSelected) window.renderTasksForSelected(items);
+        const todayISO = new Date().toISOString().slice(0,10);
+        if (dateISO === todayISO && window.renderTasksForToday) window.renderTasksForToday(items);
+      });
+    };
+
+    // התחברות והאזנה ל"היום" כברירת מחדל
+    await ensureAuth();
+    window.onSelectDate(new Date().toISOString().slice(0,10));
   </script>
 </body>
 </html>
