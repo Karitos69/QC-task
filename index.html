@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>מנהל משימות – HTML (תיקון בחירת ימים)</title>
+  <style>
+    :root{--bg:#f7f7f8;--card:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--accent:#111}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"}
+    .container{max-width:1100px;margin:0 auto;padding:16px}
+    .grid{display:grid;gap:16px}
+    @media(min-width:900px){.grid{grid-template-columns:1fr 2fr}}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,.04)}
+    .section{padding:18px}
+    .title{margin:0 0 8px;font-weight:700}
+    .subtitle{margin:0 0 16px;color:var(--muted);font-size:.95rem}
+    .row{display:flex;align-items:center;gap:8px}
+    .space-between{justify-content:space-between}
+    .btn{border:1px solid var(--border);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer}
+    .btn:hover{background:#f3f4f6}
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);font-size:.8rem;background:#fafafa}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .task{border:1px solid var(--border);border-radius:14px;padding:10px}
+    .task .muted{color:var(--muted);font-size:.9rem}
+    .task .line-through{text-decoration:line-through;color:#9ca3af}
+    .select, input[type="text"], input[type="datetime-local"]{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px}
+    .calendar{padding:14px}
+    .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+    .cal-day{aspect-ratio:1/1;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer}
+    .cal-day.out{opacity:.35}
+    .cal-day.today{border-color:#111}
+    .cal-day.selected{background:#111;color:#fff;border-color:#111}
+    .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:6px}
+    /* Modal */
+    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none}
+    .modal{position:fixed;inset-inline:0;top:8vh;margin-inline:auto;width:min(640px,92vw);background:#fff;border-radius:18px;border:1px solid var(--border);padding:16px 16px 14px;display:none}
+    .backdrop.show,.modal.show{display:block}
+    .subtasks{display:flex;flex-direction:column;gap:8px}
+    .subtask-row{display:flex;gap:8px}
+    .subtask-row input{flex:1}
+    .footer{margin-top:22px;text-align:center;color:var(--muted);font-size:.8rem}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="grid">
+      <!-- עמודת לוח שנה -->
+      <div>
+        <div class="card calendar">
+          <div class="cal-head">
+            <div class="row" id="monthLabel" style="font-weight:600"></div>
+            <div class="row">
+              <button class="btn" id="prevMonth" aria-label="חודש קודם">◀</button>
+              <button class="btn" id="nextMonth" aria-label="חודש הבא">▶</button>
+            </div>
+          </div>
+          <div class="cal-weekdays" aria-hidden="true">
+            <div>א׳</div><div>ב׳</div><div>ג׳</div><div>ד׳</div><div>ה׳</div><div>ו׳</div><div>ש׳</div>
+          </div>
+          <div id="calGrid" class="cal-grid" role="grid" aria-label="לוח שנה"></div>
+        </div>
+
+        <div class="card section" style="margin-top:12px">
+          <div class="row space-between">
+            <h3 class="title" id="selDateTitle"></h3>
+            <button id="addTaskBtn" class="btn primary">＋ הוסף משימה</button>
+          </div>
+          <div id="selectedList" class="list"></div>
+        </div>
+      </div>
+
+      <!-- עמודת מסך ראשי -->
+      <div class="grid" style="grid-template-columns:1fr"> 
+        <div class="card section">
+          <h2 class="title">היום – <span id="todayLabel"></span></h2>
+          <p class="subtitle">משימות של היום בלבד</p>
+          <div id="todayList" class="list"></div>
+        </div>
+        <div class="card section">
+          <div class="row space-between">
+            <h3 class="title">תזכורות לשבוע הקרוב</h3>
+            <span class="chip" id="remCount">0</span>
+          </div>
+          <div id="remindersList" class="list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">גרסת HTML אחת • שמירה ב־localStorage • RTL • כולל תיקון בחירת ימים</div>
+  </div>
+
+  <!-- Modal הוספת/עריכת משימה -->
+  <div id="backdrop" class="backdrop"></div>
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="row space-between">
+      <h3 id="modalTitle" class="title" style="margin:0">הוספת משימה</h3>
+      <button class="btn" id="closeModal">סגור</button>
+    </div>
+    <div style="margin-top:10px">
+      <label for="taskTitle">תיאור המשימה</label>
+      <input type="text" id="taskTitle" placeholder="מה צריך לבצע?" />
+    </div>
+    <div style="margin-top:10px">
+      <label for="taskReminder">תזכורת (אופציונלי)</label>
+      <input type="datetime-local" id="taskReminder" />
+      <div class="subtitle" style="margin:6px 0 0">תזכורות מוצגות רק לשבוע הקרוב</div>
+    </div>
+    <div style="margin-top:10px">
+      <div class="row space-between">
+        <label>תתי־משימות (לא חובה)</label>
+        <button class="btn" id="addSubtask">הוסף תת־משימה</button>
+      </div>
+      <div id="subtasks" class="subtasks"></div>
+    </div>
+    <div class="row" style="justify-content:end;margin-top:14px;gap:8px">
+      <button class="btn" id="cancelModal">ביטול</button>
+      <button class="btn primary" id="saveTask">שמור</button>
+    </div>
+  </div>
+
+  <script>
+    // ===== Utilities =====
+    const STATUS = { TODO:'todo', IN_PROGRESS:'in_progress', DEFERRED:'deferred', DONE:'done' };
+    const STATUS_LABEL = { todo:'חדש', in_progress:'בתהליך', deferred:'נדחתה', done:'בוצע' };
+
+    const LS_TASKS = 'task_manager_tasks_html_v2';
+    const LS_LAST_OPENED = 'task_manager_last_opened_html_v2';
+
+    const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const toISODate = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    };
+    const fromISO = (s) => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
+    const isSameDay = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+    const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
+
+    const fmtDate = (d, opts) => new Intl.DateTimeFormat('he-IL', opts || { day:'2-digit', month:'short', year:'numeric' }).format(d);
+    const fmtDay = (d) => new Intl.DateTimeFormat('he-IL', { day:'numeric'}).format(d);
+    const fmtMonthLabel = (d) => new Intl.DateTimeFormat('he-IL', { month:'long', year:'numeric'}).format(d);
+
+    // ===== State =====
+    let tasks = [];
+    let selectedDate = new Date();
+
+    function loadTasks(){
+      try{ const raw = localStorage.getItem(LS_TASKS); return raw? JSON.parse(raw) : []; }catch{ return []; }
+    }
+    function saveTasks(){ localStorage.setItem(LS_TASKS, JSON.stringify(tasks)); }
+    function loadLastOpened(){ return localStorage.getItem(LS_LAST_OPENED); }
+    function saveLastOpened(v){ localStorage.setItem(LS_LAST_OPENED, v); }
+
+    function migrateForward(){
+      const today = new Date();
+      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      for(const t of tasks){
+        if(!t.date) continue;
+        const d = fromISO(t.date);
+        if(d < todayDate && t.status !== STATUS.DONE){
+          t.date = toISODate(today); // העברה ליום הנוכחי
+        }
+      }
+    }
+
+    // ===== Calendar =====
+    let currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    function startOfWeek(d){
+      const r = new Date(d);
+      // week starts on Sunday
+      const day = r.getDay(); // 0=Sunday
+      r.setDate(r.getDate()-day);
+      r.setHours(0,0,0,0);
+      return r;
+    }
+    function endOfWeek(d){ const r = startOfWeek(d); r.setDate(r.getDate()+6); return r; }
+
+    function renderCalendar(){
+      document.getElementById('monthLabel').textContent = fmtMonthLabel(currentMonth);
+      const grid = document.getElementById('calGrid');
+      grid.innerHTML = '';
+      const start = startOfWeek(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
+      const endMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 0);
+      const end = endOfWeek(endMonth);
+      for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
+        const day = new Date(d); // ←←← חשוב: ליצור עותק נפרד לכל יום כדי למנוע באג סגירת-על (closure)
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'cal-day';
+        btn.setAttribute('role','gridcell');
+        btn.setAttribute('aria-label', `בחר תאריך ${fmtDate(day)}`);
+        btn.textContent = fmtDay(day);
+        if(day.getMonth() !== currentMonth.getMonth()) btn.classList.add('out');
+        if(isSameDay(day, new Date())) btn.classList.add('today');
+        if(isSameDay(day, selectedDate)) { btn.classList.add('selected'); btn.setAttribute('aria-pressed','true'); }
+        btn.addEventListener('click', ()=>{
+          selectedDate = new Date(day);
+          renderSelectedDate();
+          renderCalendar();
+        });
+        grid.appendChild(btn);
+      }
+    }
+
+    // ===== Rendering Tasks =====
+    function tasksFor(dateISO){ return tasks.filter(t=>t.date===dateISO); }
+
+    function renderSelectedDate(){
+      const title = document.getElementById('selDateTitle');
+      title.textContent = `משימות לתאריך ${fmtDate(selectedDate)}`;
+      const list = document.getElementById('selectedList');
+      list.innerHTML = '';
+      const items = tasksFor(toISODate(selectedDate));
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין משימות לתאריך זה.</div>'; return; }
+      for(const t of items){ list.appendChild(taskRow(t)); }
+    }
+
+    function renderToday(){
+      document.getElementById('todayLabel').textContent = fmtDate(new Date());
+      const list = document.getElementById('todayList');
+      list.innerHTML = '';
+      const items = tasksFor(toISODate(new Date()));
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין משימות להיום. אפשר להוסיף מלוח השנה.</div>'; return; }
+      for(const t of items){ list.appendChild(taskRow(t)); }
+    }
+
+    function renderReminders(){
+      const now = new Date();
+      const in7 = addDays(now,7);
+      const items = tasks
+        .filter(t=>t.reminder)
+        .map(t=>({ ...t, r:new Date(t.reminder) }))
+        .filter(t=> t.r>=now && t.r<=in7)
+        .sort((a,b)=> a.r - b.r);
+      document.getElementById('remCount').textContent = items.length;
+      const list = document.getElementById('remindersList');
+      list.innerHTML = '';
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין תזכורות בשבוע הקרוב.</div>'; return; }
+      for(const t of items){
+        const div = document.createElement('div');
+        div.className = 'task row space-between';
+        const left = document.createElement('div');
+        left.className = 'row';
+        left.innerHTML = `⏰ <span style="font-weight:600">${escapeHtml(t.title)}</span>`;
+        const right = document.createElement('div');
+        right.className = 'muted';
+        right.textContent = new Intl.DateTimeFormat('he-IL', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}).format(t.r);
+        div.append(left,right);
+        list.appendChild(div);
+      }
+    }
+
+    function taskRow(t){
+      const wrap = document.createElement('div');
+      wrap.className = 'task';
+
+      const top = document.createElement('div');
+      top.className = 'row space-between';
+
+      const left = document.createElement('div');
+      left.className = 'row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = t.status === STATUS.DONE;
+      cb.addEventListener('change',()=>{ t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll(); });
+      const title = document.createElement('div');
+      title.style.fontWeight = '600';
+      title.textContent = t.title;
+      if(t.status===STATUS.DONE) title.classList.add('line-through');
+      left.append(cb,title);
+
+      const right = document.createElement('div');
+      right.className = 'row';
+      if(t.reminder){
+        const chip = document.createElement('span');
+        chip.className = 'chip muted';
+        chip.textContent = new Intl.DateTimeFormat('he-IL',{ day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}).format(new Date(t.reminder));
+        right.appendChild(chip);
+      }
+      const select = document.createElement('select');
+      select.className = 'select';
+      select.style.width = 'auto';
+      for(const [val,lab] of Object.entries(STATUS_LABEL)){
+        const opt = document.createElement('option'); opt.value = val; opt.textContent = lab; select.appendChild(opt);
+      }
+      select.value = t.status;
+      select.addEventListener('change',()=>{ t.status = select.value; saveTasks(); renderAll(); });
+
+      const del = document.createElement('button'); del.className='btn'; del.textContent='מחיקה';
+      del.addEventListener('click',()=>{ tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll(); });
+
+      right.append(select,del);
+
+      top.append(left,right);
+      wrap.appendChild(top);
+
+      if(t.subtasks && t.subtasks.length){
+        const stWrap = document.createElement('div'); stWrap.style.marginTop='8px';
+        for(const st of t.subtasks){
+          const lab = document.createElement('label'); lab.className='row'; lab.style.gap='8px';
+          const c = document.createElement('input'); c.type='checkbox'; c.checked = !!st.done;
+          c.addEventListener('change',()=>{ st.done = c.checked; saveTasks(); });
+          const sp = document.createElement('span'); sp.textContent = st.text; if(st.done) sp.classList.add('line-through','muted');
+          lab.append(c,sp); stWrap.appendChild(lab);
+        }
+        wrap.appendChild(stWrap);
+      }
+      return wrap;
+    }
+
+    // ===== Modal Logic =====
+    const backdrop = document.getElementById('backdrop');
+    const modal = document.getElementById('modal');
+    const openModal = () => { backdrop.classList.add('show'); modal.classList.add('show'); };
+    const closeModal = () => { backdrop.classList.remove('show'); modal.classList.remove('show'); resetModal(); };
+
+    function resetModal(){
+      document.getElementById('taskTitle').value='';
+      document.getElementById('taskReminder').value='';
+      document.getElementById('subtasks').innerHTML='';
+    }
+
+    document.getElementById('closeModal').onclick = closeModal;
+    document.getElementById('cancelModal').onclick = closeModal;
+
+    document.getElementById('addTaskBtn').onclick = ()=> openModal();
+    document.getElementById('addSubtask').onclick = ()=>{
+      const row = document.createElement('div'); row.className = 'subtask-row';
+      const input = document.createElement('input'); input.type='text'; input.placeholder='פרט משנה';
+      const btn = document.createElement('button'); btn.className='btn'; btn.textContent='מחק';
+      btn.onclick = ()=> row.remove();
+      row.append(input,btn);
+      document.getElementById('subtasks').appendChild(row);
+    };
+
+    document.getElementById('saveTask').onclick = ()=>{
+      const title = document.getElementById('taskTitle').value.trim();
+      const reminder = document.getElementById('taskReminder').value || null;
+      const stEls = Array.from(document.querySelectorAll('#subtasks .subtask-row input'));
+      if(!title){ alert('נא להזין תיאור משימה'); return; }
+      const newTask = { id:uid(), title, date: toISODate(selectedDate), status: STATUS.TODO, reminder, subtasks: stEls.map(e=>({ id:uid(), text:e.value.trim(), done:false })).filter(s=>s.text!=='') };
+      tasks.push(newTask);
+      saveTasks();
+      closeModal();
+      renderAll();
+    };
+
+    backdrop.addEventListener('click', closeModal);
+
+    // ===== Navigation buttons =====
+    document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
+    document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
+
+    // ===== Helpers =====
+    function renderAll(){
+      renderCalendar();
+      renderSelectedDate();
+      renderToday();
+      renderReminders();
+    }
+
+    function escapeHtml(s){ return s.replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
+
+    // ===== Init + carry-over logic =====
+    function init(){
+      tasks = loadTasks();
+      const last = loadLastOpened();
+      const todayISO = toISODate(new Date());
+      if(!last){ saveLastOpened(todayISO); migrateForward(); saveTasks(); }
+      else if(last !== todayISO){ migrateForward(); saveTasks(); saveLastOpened(todayISO); }
+
+      selectedDate = new Date();
+      currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+      renderAll();
+    }
+
+    init();
+  </script>
+</body>
+</html>
