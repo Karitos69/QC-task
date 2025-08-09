@@ -72,7 +72,7 @@
       </div>
 
       <!-- עמודת מסך ראשי -->
-      <div class="grid" style="grid-template-columns:1fr"> 
+      <div class="grid" style="grid-template-columns:1fr">
         <div class="card section">
           <h2 class="title">היום – <span id="todayLabel"></span></h2>
           <p class="subtitle">משימות של היום בלבד</p>
@@ -200,7 +200,7 @@
           selectedDate = new Date(day);
           renderSelectedDate();
           renderCalendar();
-          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate)); // ← חיבור לענן
+          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate)); // חיבור לענן
         });
         grid.appendChild(btn);
       }
@@ -368,16 +368,16 @@
       const stEls = Array.from(document.querySelectorAll('#subtasks .subtask-row input'));
       if (!title) { alert('נא להזין תיאור משימה'); return; }
 
-      const newTask = { 
-        id: uid(), 
-        title, 
-        date: toISODate(selectedDate), 
-        status: STATUS.TODO, 
-        reminder, 
-        subtasks: stEls.map(e => ({ id: uid(), text: e.value.trim(), done: false })).filter(s => s.text !== '') 
+      const newTask = {
+        id: uid(),
+        title,
+        date: toISODate(selectedDate),
+        status: STATUS.TODO,
+        reminder,
+        subtasks: stEls.map(e => ({ id: uid(), text: e.value.trim(), done: false })).filter(s => s.text !== '')
       };
 
-      // שמירה בענן (אם מחובר Firebase), אחרת לוקאלי
+      // ענן אם קיים, אחרת לוקאלי
       if (window.cloudAddTask) {
         try { await window.cloudAddTask(newTask); }
         catch (err) { console.error('שמירה ב-Firebase נכשלה:', err); tasks.push(newTask); saveTasks(); }
@@ -437,19 +437,18 @@
     import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // החלף לערכים שלך במידת הצורך
-    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
-  authDomain: "qc-task.firebaseapp.com",
-  projectId: "qc-task",
-  storageBucket: "qc-task.firebasestorage.app",
-  messagingSenderId: "811038001243",
-  appId: "1:811038001243:web:17093b369a0b12389ad77e",
-  measurementId: "G-V7WG3M18B1"
-};
+    // קונפיג של הפרויקט שלך
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
+      authDomain: "qc-task.firebaseapp.com",
+      projectId: "qc-task",
+      storageBucket: "qc-task.firebasestorage.app",
+      messagingSenderId: "811038001243",
+      appId: "1:811038001243:web:17093b369a0b12389ad77e",
+      measurementId: "G-V7WG3M18B1"
+    };
 
-    const app = initializeApp(firebaseConfig);
+    const app  = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db   = getFirestore(app);
     const tasksCol = collection(db, "tasks");
@@ -497,9 +496,11 @@ const firebaseConfig = {
       });
     };
 
-    // התחברות והאזנה ל"היום" כברירת מחדל
-    await ensureAuth();
-    window.onSelectDate(new Date().toISOString().slice(0,10));
+    // התחברות והאזנה ברירת-מחדל (ללא top-level await)
+    (async () => {
+      await ensureAuth();
+      window.onSelectDate(new Date().toISOString().slice(0,10));
+    })();
   </script>
 </body>
 </html>
