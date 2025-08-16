@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="he" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>מנהל משימות – HTML</title>
+  <title>Task Manager – HTML (Calendar Fixed)</title>
   <style>
     :root{--bg:#f7f7f8;--card:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--accent:#111}
     *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji"}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
     .container{max-width:1100px;margin:0 auto;padding:16px}
     .grid{display:grid;gap:16px}
     @media(min-width:900px){.grid{grid-template-columns:1fr 2fr}}
@@ -20,12 +20,10 @@
     .btn{border:1px solid var(--border);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer}
     .btn:hover{background:#f3f4f6}
     .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-    .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);font-size:.8rem;background:#fafafa}
     .list{display:flex;flex-direction:column;gap:10px}
     .task{border:1px solid var(--border);border-radius:14px;padding:10px}
     .task .muted{color:var(--muted);font-size:.9rem}
     .task .line-through{text-decoration:line-through;color:#9ca3af}
-    .select, input[type="text"], input[type="datetime-local"], input[type="date"]{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px}
     .calendar{padding:14px}
     .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
     .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
@@ -34,190 +32,104 @@
     .cal-day.today{border-color:#111}
     .cal-day.selected{background:#111;color:#fff;border-color:#111}
     .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:6px}
-    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none}
-    .modal{position:fixed;inset-inline:0;top:8vh;margin-inline:auto;width:min(640px,92vw);background:#fff;border-radius:18px;border:1px solid var(--border);padding:16px 16px 14px;display:none}
-    .backdrop.show,.modal.show{display:block}
-    .subtasks{display:flex;flex-direction:column;gap:8px}
-    .subtask-row{display:flex;gap:8px}
-    .subtask-row input{flex:1}
     .footer{margin-top:22px;text-align:center;color:var(--muted);font-size:.8rem}
-    .row.gap-12{gap:12px}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="grid">
-      <!-- עמודת לוח שנה -->
+      <!-- Calendar column -->
       <div>
         <div class="card calendar">
           <div class="cal-head">
             <div class="row" id="monthLabel" style="font-weight:600"></div>
             <div class="row">
-              <button class="btn" id="prevMonth" aria-label="חודש קודם">◀</button>
-              <button class="btn" id="nextMonth" aria-label="חודש הבא">▶</button>
+              <button class="btn" id="prevMonth" aria-label="Previous month">◀</button>
+              <button class="btn" id="nextMonth" aria-label="Next month">▶</button>
             </div>
           </div>
           <div class="cal-weekdays" aria-hidden="true">
-            <div>א׳</div><div>ב׳</div><div>ג׳</div><div>ד׳</div><div>ה׳</div><div>ו׳</div><div>ש׳</div>
+            <div>Su</div><div>Mo</div><div>Tu</div><div>We</div><div>Th</div><div>Fr</div><div>Sa</div>
           </div>
-          <div id="calGrid" class="cal-grid" role="grid" aria-label="לוח שנה"></div>
+          <div id="calGrid" class="cal-grid" role="grid" aria-label="Calendar"></div>
+        </div>
+
+        <div class="card section" style="margin-top:12px">
+          <div class="row space-between">
+            <h3 class="title" id="selDateTitle"></h3>
+            <button id="addTaskBtn" class="btn primary">＋ Add Task</button>
+          </div>
+          <div id="selectedList" class="list"></div>
         </div>
       </div>
 
-      <!-- עמודת משימות שיש לבצע -->
+      <!-- Main column -->
       <div class="grid" style="grid-template-columns:1fr">
         <div class="card section">
-          <div class="row space-between">
-            <h2 class="title">משימות שיש לבצע – <span id="todayLabel"></span></h2>
-            <div class="row gap-12">
-              <button id="reportBtn" class="btn">דו״ח PDF</button>
-              <button id="addTaskBtn" class="btn primary">＋ הוסף משימה</button>
-            </div>
-          </div>
-          <p class="subtitle">רק משימות ליום הנוכחי</p>
+          <h2 class="title">Today – <span id="todayLabel"></span></h2>
+          <p class="subtitle">Tasks to complete</p>
           <div id="todayList" class="list"></div>
+          <button class="btn primary" id="exportPdfBtn" style="margin-top:10px">📄 Export PDF</button>
         </div>
       </div>
     </div>
 
-    <div class="footer">גרסת HTML אחת • שמירה ב־localStorage/Firestore • RTL</div>
+    <div class="footer">HTML Task Manager • LocalStorage • Auto carry-forward • PDF Export</div>
   </div>
 
-  <!-- Modal הוספת/עריכת משימה -->
-  <div id="backdrop" class="backdrop"></div>
-  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="row space-between">
-      <h3 id="modalTitle" class="title" style="margin:0">הוספת משימה</h3>
-      <button class="btn" id="closeModal">סגור</button>
-    </div>
-    <div style="margin-top:10px">
-      <label for="taskTitle">תיאור המשימה</label>
-      <input type="text" id="taskTitle" placeholder="מה צריך לבצע?" />
-    </div>
-    <div style="margin-top:10px">
-      <label for="taskReminder">תזכורת (אופציונלי)</label>
-      <input type="datetime-local" id="taskReminder" />
-    </div>
-    <div style="margin-top:10px">
-      <div class="row space-between">
-        <label>תתי־משימות (לא חובה)</label>
-        <button class="btn" id="addSubtask">הוסף תת־משימה</button>
-      </div>
-      <div id="subtasks" class="subtasks"></div>
-    </div>
-    <div class="row" style="justify-content:end;margin-top:14px;gap:8px">
-      <button class="btn" id="cancelModal">ביטול</button>
-      <button class="btn primary" id="saveTask">שמור</button>
-    </div>
-  </div>
-
-  <!-- Modal דו״ח PDF -->
-  <div id="reportBackdrop" class="backdrop"></div>
-  <div id="reportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
-    <div class="row space-between">
-      <h3 id="reportTitle" class="title" style="margin:0">הפקת דו״ח PDF לפי טווח תאריכים</h3>
-      <button class="btn" id="closeReport">סגור</button>
-    </div>
-    <div class="row" style="gap:12px;margin-top:10px">
-      <div style="flex:1">
-        <label for="fromDate">מתאריך</label>
-        <input type="date" id="fromDate" />
-      </div>
-      <div style="flex:1">
-        <label for="toDate">עד תאריך</label>
-        <input type="date" id="toDate" />
-      </div>
-    </div>
-    <div class="row" style="justify-content:end;margin-top:14px;gap:8px">
-      <button class="btn" id="cancelReport">ביטול</button>
-      <button class="btn primary" id="exportPdf">ייצא PDF</button>
-    </div>
-  </div>
-
-  <!-- jsPDF ליצוא PDF -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    // ===== Utilities =====
-    const STATUS = { TODO:'todo', IN_PROGRESS:'in_progress', DEFERRED:'deferred', DONE:'done' };
-    const STATUS_LABEL = { todo:'חדש', in_progress:'בתהליך', deferred:'נדחתה', done:'בוצע' };
+    const { jsPDF } = window.jspdf;
 
-    const LS_TASKS = 'task_manager_tasks_html_v2';
-    const LS_LAST_OPENED = 'task_manager_last_opened_html_v2';
+    // ===== Constants & utils =====
+    const STATUS = { TODO:'todo', IN_PROGRESS:'in_progress', DEFERRED:'deferred', DONE:'done' };
+    const STATUS_LABEL = { todo:'New', in_progress:'In Progress', deferred:'Deferred', done:'Done' };
+    const LS_TASKS = 'task_manager_tasks_html_v3';
 
     const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const toISODate = (d) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${y}-${m}-${day}`;
-    };
+    const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const fromISO = (s) => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
     const isSameDay = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
     const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
+    const fmtDate = (d, opts) => new Intl.DateTimeFormat('en-GB', opts || { day:'2-digit', month:'short', year:'numeric' }).format(d);
+    const fmtDay = (d) => new Intl.DateTimeFormat('en-GB', { day:'numeric'}).format(d);
+    const fmtMonthLabel = (d) => new Intl.DateTimeFormat('en-GB', { month:'long', year:'numeric'}).format(d);
 
-    const fmtDate = (d, opts) => new Intl.DateTimeFormat('he-IL', opts || { day:'2-digit', month:'short', year:'numeric' }).format(d);
-    const fmtDay = (d) => new Intl.DateTimeFormat('he-IL', { day:'numeric'}).format(d);
-    const fmtMonthLabel = (d) => new Intl.DateTimeFormat('he-IL', { month:'long', year:'numeric'}).format(d);
-
-    // ===== State =====
-    let tasks = [];
-    let selectedDate = new Date();
-
-    function loadTasks(){
-      try{ const raw = localStorage.getItem(LS_TASKS); return raw? JSON.parse(raw) : []; }catch{ return []; }
-    }
+    function loadTasks(){ try{ return JSON.parse(localStorage.getItem(LS_TASKS))||[]; }catch{return [];} }
     function saveTasks(){ localStorage.setItem(LS_TASKS, JSON.stringify(tasks)); }
-    function loadLastOpened(){ return localStorage.getItem(LS_LAST_OPENED); }
-    function saveLastOpened(v){ localStorage.setItem(LS_LAST_OPENED, v); }
-
-    // עוזר לנרמל תאריכים ישנים לכל הפורמטים
-    window.normalizeToISODate = function normalizeToISODate(v){
+    function normalizeToISODate(v){
       try {
         if (!v) return null;
-        if (typeof v === 'string') {
-          const s = v.slice(0,10);
-          const [y,m,d] = s.split('-').map(Number);
-          return (y && m && d) ? `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : null;
-        }
-        if (v && typeof v.toDate === 'function') { // Firestore Timestamp
-          const d = v.toDate();
-          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        }
-        if (v instanceof Date) {
-          return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
-        }
+        if (typeof v === 'string') return v.slice(0,10);
+        if (v instanceof Date) return toISODate(v);
+        if (v && typeof v.toDate === 'function') return toISODate(v.toDate());
         return null;
       } catch { return null; }
     }
 
-    // העברה אוטומטית: מקדמת כל משימה לא-בוצעה מתאריך עבר → יום-אחרי-יום עד להיום
+    // ===== State =====
+    let tasks = [];
+    let selectedDate = new Date();
+    let currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+
+    // ===== Auto-migrate: move every non-Done past task forward day-by-day until today =====
     function migrateForwardLocal(){
-      const today = new Date();
-      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      let changed = false;
-
-      for(const t of tasks){
-        if(t.status === STATUS.DONE) continue;
-        const iso = window.normalizeToISODate(t.date);
-        if(!iso) continue;
-
-        let d = fromISO(iso);
-        d.setHours(0,0,0,0);
-        while (d < todayDate) d = addDays(d, 1); // מקדם יום-יום
-
-        const newISO = toISODate(d);
-        if (newISO !== iso) { t.date = newISO; changed = true; }
+      const today = new Date(); today.setHours(0,0,0,0);
+      for (const t of tasks){
+        if (t.status===STATUS.DONE) continue;
+        const iso = normalizeToISODate(t.date);
+        if (!iso) continue;
+        let d = fromISO(iso); d.setHours(0,0,0,0);
+        while(d < today){ d = addDays(d,1); }
+        t.date = toISODate(d);
       }
-      if (changed) saveTasks();
+      saveTasks();
     }
 
     // ===== Calendar =====
-    let currentMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-
     function startOfWeek(d){
       const r = new Date(d);
-      const day = r.getDay(); // 0=Sunday
+      const day = r.getDay(); // 0=Sun
       r.setDate(r.getDate()-day);
       r.setHours(0,0,0,0);
       return r;
@@ -225,19 +137,24 @@
     function endOfWeek(d){ const r = startOfWeek(d); r.setDate(r.getDate()+6); return r; }
 
     function renderCalendar(){
-      document.getElementById('monthLabel').textContent = fmtMonthLabel(currentMonth);
+      const monthLabel = document.getElementById('monthLabel');
       const grid = document.getElementById('calGrid');
+      if(!monthLabel || !grid) return;
+
+      monthLabel.textContent = fmtMonthLabel(currentMonth);
       grid.innerHTML = '';
+
       const start = startOfWeek(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
       const endMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 0);
       const end = endOfWeek(endMonth);
+
       for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
-        const day = new Date(d); // ← עותק לכל כפתור
+        const day = new Date(d);
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'cal-day';
         btn.setAttribute('role','gridcell');
-        btn.setAttribute('aria-label', `בחר תאריך ${fmtDate(day)}`);
+        btn.setAttribute('aria-label', `Select ${fmtDate(day)}`);
         btn.textContent = fmtDay(day);
         if(day.getMonth() !== currentMonth.getMonth()) btn.classList.add('out');
         if(isSameDay(day, new Date())) btn.classList.add('today');
@@ -245,378 +162,106 @@
         btn.addEventListener('click', ()=>{
           selectedDate = new Date(day);
           renderCalendar();
-          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate));
+          renderSelectedDate();
         });
         grid.appendChild(btn);
       }
     }
 
-    // ===== Rendering Tasks =====
+    // ===== Rendering =====
     function tasksFor(dateISO){ return tasks.filter(t=>t.date===dateISO); }
 
-    function renderToday(){
-      document.getElementById('todayLabel').textContent = fmtDate(new Date());
-      const list = document.getElementById('todayList');
-      list.innerHTML = '';
-      const items = tasksFor(toISODate(new Date()));
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין משימות להיום. אפשר להוסיף מלוח השנה.</div>'; return; }
-      for(const t of items){ list.appendChild(taskRow(t)); }
-    }
-
     function taskRow(t){
-      const wrap = document.createElement('div');
-      wrap.className = 'task';
-
-      const top = document.createElement('div');
-      top.className = 'row space-between';
-
-      const left = document.createElement('div');
-      left.className = 'row';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = t.status === STATUS.DONE;
-      cb.addEventListener('change', async ()=>{
-        if (window.cloudUpdateTask) {
-          await window.cloudUpdateTask(t.id, { status: cb.checked? STATUS.DONE : STATUS.TODO });
-        } else {
-          t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll();
-        }
-      });
-      const title = document.createElement('div');
-      title.style.fontWeight = '600';
-      title.textContent = t.title || '(ללא כותרת)';
-      if(t.status===STATUS.DONE) title.classList.add('line-through');
-      left.append(cb,title);
-
-      const right = document.createElement('div');
-      right.className = 'row';
-      if(t.reminder){
-        const chip = document.createElement('span');
-        chip.className = 'chip muted';
-        chip.textContent = new Intl.DateTimeFormat('he-IL',{ day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}).format(new Date(t.reminder));
-        right.appendChild(chip);
-      }
-      const select = document.createElement('select');
-      select.className = 'select';
-      select.style.width = 'auto';
-      for(const [val,lab] of Object.entries(STATUS_LABEL)){
-        const opt = document.createElement('option'); opt.value = val; opt.textContent = lab; select.appendChild(opt);
-      }
-      select.value = t.status;
-      select.addEventListener('change', async ()=>{
-        if (window.cloudUpdateTask) {
-          await window.cloudUpdateTask(t.id, { status: select.value });
-        } else {
-          t.status = select.value; saveTasks(); renderAll();
-        }
-      });
-
-      const del = document.createElement('button'); del.className='btn'; del.textContent='מחיקה';
-      del.addEventListener('click', async ()=>{
-        if (window.cloudDeleteTask) {
-          await window.cloudDeleteTask(t.id);
-        } else {
-          tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll();
-        }
-      });
-
-      right.append(select,del);
-
-      top.append(left,right);
-      wrap.appendChild(top);
-
-      if(t.subtasks && t.subtasks.length){
-        const stWrap = document.createElement('div'); stWrap.style.marginTop='8px';
-        for(const st of t.subtasks){
-          const lab = document.createElement('label'); lab.className='row'; lab.style.gap='8px';
-          const c = document.createElement('input'); c.type='checkbox'; c.checked = !!st.done;
-          c.addEventListener('change', async ()=>{
-            if (window.cloudUpdateTask){
-              const newSubs = t.subtasks.map(s => s.id===st.id ? { ...s, done: c.checked } : s);
-              await window.cloudUpdateTask(t.id, { subtasks: newSubs });
-            } else {
-              st.done = c.checked; saveTasks();
-            }
-          });
-          const sp = document.createElement('span'); sp.textContent = st.text; if(st.done) sp.classList.add('line-through','muted');
-          lab.append(c,sp); stWrap.appendChild(lab);
-        }
-        wrap.appendChild(stWrap);
-      }
+      const wrap = document.createElement('div'); wrap.className='task';
+      const top = document.createElement('div'); top.className='row space-between';
+      const left = document.createElement('div'); left.className='row';
+      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = t.status===STATUS.DONE;
+      cb.onchange=()=>{ t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll(); };
+      const ttl = document.createElement('div'); ttl.textContent = t.title || '(No title)'; ttl.style.fontWeight='600';
+      if(t.status===STATUS.DONE) ttl.classList.add('line-through');
+      left.append(cb, ttl);
+      top.append(left);
+      wrap.append(top);
       return wrap;
     }
 
-    // ===== Modal Logic =====
-    const backdrop = document.getElementById('backdrop');
-    const modal = document.getElementById('modal');
-    const openModal = () => { backdrop.classList.add('show'); modal.classList.add('show'); };
-    const closeModal = () => { backdrop.classList.remove('show'); modal.classList.remove('show'); resetModal(); };
-
-    function resetModal(){
-      document.getElementById('taskTitle').value='';
-      document.getElementById('taskReminder').value='';
-      document.getElementById('subtasks').innerHTML='';
+    function renderSelectedDate(){
+      const title = document.getElementById('selDateTitle');
+      const list  = document.getElementById('selectedList');
+      if(!title || !list) return;
+      title.textContent = `Tasks for ${fmtDate(selectedDate)}`;
+      list.innerHTML = '';
+      const items = tasksFor(toISODate(selectedDate));
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks for this date</div>'; return; }
+      for(const t of items){ list.appendChild(taskRow(t)); }
     }
 
-    document.getElementById('closeModal').onclick = closeModal;
-    document.getElementById('cancelModal').onclick = closeModal;
+    function renderToday(){
+      const today = new Date();
+      document.getElementById('todayLabel').textContent = fmtDate(today);
+      const list = document.getElementById('todayList');
+      list.innerHTML = '';
+      const items = tasksFor(toISODate(today));
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks for today</div>'; return; }
+      for(const t of items){ list.appendChild(taskRow(t)); }
+    }
 
-    document.getElementById('addTaskBtn').onclick = ()=> openModal();
-    document.getElementById('addSubtask').onclick = ()=>{
-      const row = document.createElement('div'); row.className = 'subtask-row';
-      const input = document.createElement('input'); input.type='text'; input.placeholder='פרט משנה';
-      const btn = document.createElement('button'); btn.className='btn'; btn.textContent='מחק';
-      btn.onclick = ()=> row.remove();
-      row.append(input,btn);
-      document.getElementById('subtasks').appendChild(row);
-    };
-
-    document.getElementById('saveTask').onclick = async () => {
-      const title = document.getElementById('taskTitle').value.trim();
-      const reminder = document.getElementById('taskReminder').value || null;
-      const stEls = Array.from(document.querySelectorAll('#subtasks .subtask-row input'));
-      if (!title) { alert('נא להזין תיאור משימה'); return; }
-
-      const newTask = {
-        id: uid(),
-        title,
-        date: toISODate(selectedDate),
-        status: STATUS.TODO,
-        reminder,
-        subtasks: stEls.map(e => ({ id: uid(), text: e.value.trim(), done: false })).filter(s => s.text !== '')
-      };
-
-      // ענן אם קיים, אחרת לוקאלי
-      if (window.cloudAddTask) {
-        try { await window.cloudAddTask(newTask); }
-        catch (err) { console.error('שמירה ב-Firebase נכשלה:', err); tasks.push(newTask); saveTasks(); }
-      } else { tasks.push(newTask); saveTasks(); }
-
-      closeModal();
-      renderAll();
-    };
-
-    backdrop.addEventListener('click', closeModal);
-
-    // ===== Report Modal =====
-    const reportBackdrop = document.getElementById('reportBackdrop');
-    const reportModal = document.getElementById('reportModal');
-    const openReport = () => { reportBackdrop.classList.add('show'); reportModal.classList.add('show'); };
-    const closeReport = () => { reportBackdrop.classList.remove('show'); reportModal.classList.remove('show'); };
-
-    document.getElementById('reportBtn').onclick = openReport;
-    document.getElementById('closeReport').onclick = closeReport;
-    document.getElementById('cancelReport').onclick = closeReport;
-    reportBackdrop.addEventListener('click', closeReport);
-
-    document.getElementById('exportPdf').onclick = async ()=>{
-      const from = document.getElementById('fromDate').value;
-      const to   = document.getElementById('toDate').value;
-      if(!from || !to){ alert('נא לבחור טווח תאריכים מלא'); return; }
-      if(from > to){ alert('טווח תאריכים לא תקין'); return; }
-      try{
-        let items = [];
-        if (window.cloudFetchRange) {
-          items = await window.cloudFetchRange(from, to);
-        } else {
-          const local = loadTasks();
-          items = local
-            .map(t => ({...t, date: window.normalizeToISODate(t.date)}))
-            .filter(t => t.date && t.date >= from && t.date <= to);
-        }
-        exportTasksToPdf(items, from, to);
-        closeReport();
-      }catch(err){
-        console.error(err);
-        alert('אירעה שגיאה ביצירת הדו״ח');
-      }
-    };
-
-    // ===== Navigation buttons =====
-    document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
-    document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
-
-    // ===== Adapters מהענן =====
-    window.renderTasksForToday = (items) => {
-      const todayISO = toISODate(new Date());
-      tasks = tasks.filter(t => t.date !== todayISO).concat(items);
-      renderToday();
-    };
-
-    // ===== Helpers =====
     function renderAll(){
       renderCalendar();
+      renderSelectedDate();
       renderToday();
     }
 
-    function escapeHtml(s){ return s.replace(/[&<>\"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    // ===== Events =====
+    // Month navigation
+    document.addEventListener('click', (e)=>{
+      if(e.target && e.target.id === 'prevMonth'){
+        currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1);
+        renderCalendar();
+      }
+      if(e.target && e.target.id === 'nextMonth'){
+        currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1);
+        renderCalendar();
+      }
+    });
 
-    // יצוא PDF
-    function exportTasksToPdf(items, from, to){
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const marginX = 40;
-      let y = 48;
+    // Add task to selected date (prompt-based)
+    document.getElementById('addTaskBtn').onclick = ()=>{
+      const title = prompt('Task title');
+      if(!title) return;
+      tasks.push({ id: uid(), title, date: toISODate(selectedDate), status: STATUS.TODO });
+      saveTasks();
+      renderSelectedDate();
+      renderToday();
+    };
 
-      const title = `דו״ח משימות ${from}–${to}`;
-      doc.setFont('helvetica','bold'); doc.setFontSize(16);
-      doc.text(title, marginX, y); y += 20;
-
-      const done = items.filter(t => t.status === STATUS.DONE);
-      const notDone = items.filter(t => t.status !== STATUS.DONE);
-
-      doc.setFont('helvetica','normal'); doc.setFontSize(12);
-
-      const section = (header, arr) => {
-        y += 10;
-        doc.setFont('helvetica','bold'); doc.text(header, marginX, y); y += 12;
-        doc.setFont('helvetica','normal');
-        if(arr.length === 0){
-          doc.text('— אין פריטים —', marginX, y); y += 16;
-          return;
-        }
-        for(const t of arr){
-          const line = `• ${t.title || '(ללא כותרת)'} — תאריך: ${t.date || '—'} — סטטוס: ${STATUS_LABEL[t.status] || t.status}`;
-          const parts = doc.splitTextToSize(line, 515);
-          if (y + parts.length*14 > 800) { doc.addPage(); y = 48; }
-          doc.text(parts, marginX, y);
-          y += parts.length*14 + 6;
-        }
-      };
-
-      section('סעיף 1: משימות שסומנו כ"בוצע" בטווח', done);
-      section('סעיף 2: משימות שלא נסגרו בטווח', notDone);
-
-      const filename = `tasks_report_${from}_to_${to}.pdf`;
-      doc.save(filename);
-    }
+    // PDF export (simple prompts for range)
+    document.getElementById('exportPdfBtn').onclick=()=>{
+      const start=prompt('Start date (YYYY-MM-DD)');
+      const end=prompt('End date (YYYY-MM-DD)');
+      if(!start||!end) return;
+      const s=fromISO(start), e=fromISO(end);
+      const done=tasks.filter(t=>t.status===STATUS.DONE && new Date(t.date)>=s && new Date(t.date)<=e);
+      const notDone=tasks.filter(t=>t.status!==STATUS.DONE && new Date(t.date)>=s && new Date(t.date)<=e);
+      const doc=new jsPDF();
+      let y=10;
+      doc.setFontSize(16); doc.text('Task Report',105,y,{align:'center'}); y+=10;
+      doc.setFontSize(12); doc.text('Completed:',10,y); y+=8;
+      done.forEach(t=>{ doc.text(`- ${t.title} (${t.date})`,15,y); y+=8; });
+      y+=6; doc.text('Not Completed:',10,y); y+=8;
+      notDone.forEach(t=>{ doc.text(`- ${t.title} (${t.date})`,15,y); y+=8; });
+      doc.save('tasks-report.pdf');
+    };
 
     // ===== Init =====
-    async function init(){
+    function init(){
       tasks = loadTasks();
-
-      // תמיד מריצים מיגרציה בלוקאל ומעדכנים today
-      const todayISO = toISODate(new Date());
-      migrateForwardLocal();
-      saveLastOpened(todayISO);
-
+      migrateForwardLocal(); // always carry-forward older incomplete tasks up to today
       selectedDate = new Date();
       currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       renderAll();
-
-      // ענן: התחברות + מיגרציה תמידית + האזנה להיום
-      if (window.cloudEnsureReady) {
-        try {
-          await window.cloudEnsureReady();
-          if (window.cloudMigrateForward) await window.cloudMigrateForward();
-          if (window.onSelectDate) window.onSelectDate(todayISO);
-        } catch(e){
-          console.warn('ענן לא זמין כרגע:', e);
-        }
-      }
     }
     init();
-  </script>
-
-  <!-- ===== Firebase (בתוך ה-body לפני הסגירה) ===== -->
-  <script type="module" id="firebase-setup">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-    // קונפיג של הפרויקט שלך
-    const firebaseConfig = {
-      apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
-      authDomain: "qc-task.firebaseapp.com",
-      projectId: "qc-task",
-      storageBucket: "qc-task.firebasestorage.app",
-      messagingSenderId: "811038001243",
-      appId: "1:811038001243:web:17093b369a0b12389ad77e",
-      measurementId: "G-V7WG3M18B1"
-    };
-
-    const app  = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db   = getFirestore(app);
-    const tasksCol = collection(db, "tasks");
-
-    function ensureAuth() {
-      return new Promise((resolve) => {
-        onAuthStateChanged(auth, async (user) => {
-          if (user) return resolve(user);
-          await signInAnonymously(auth);
-        });
-      });
-    }
-
-    // חשיפת פונקציות לענן
-    window.cloudEnsureReady = async () => { await ensureAuth(); };
-
-    window.cloudAddTask = async (task) => {
-      const id = task.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
-      await setDoc(doc(tasksCol, id), { ...task, id });
-      return id;
-    };
-    window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
-    window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
-
-    // עוזר לנרמל תאריכים גם בצד המודול
-    function normalizeToISODate(v){
-      try {
-        if (!v) return null;
-        if (typeof v === 'string') {
-          const s = v.slice(0,10);
-          const [y,m,d] = s.split('-').map(Number);
-          return (y && m && d) ? `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : null;
-        }
-        if (v && typeof v.toDate === 'function') {
-          const d = v.toDate();
-          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        }
-        if (v instanceof Date) {
-          return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
-        }
-        return null;
-      } catch { return null; }
-    }
-
-    // מיגרציה בענן: כל משימה מתאריך עבר שאינה DONE → מקודמת עד להיום (תוצאת-סוף = היום)
-    window.cloudMigrateForward = async () => {
-      const snap = await getDocs(tasksCol);
-      const todayISO = new Date().toISOString().slice(0,10);
-      const updates = [];
-      snap.forEach(dref => {
-        const t = dref.data();
-        if (t.status === 'done') return;
-        const iso = normalizeToISODate(t.date);
-        if (!iso) return;
-        if (iso < todayISO) {
-          updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
-        }
-      });
-      await Promise.all(updates);
-    };
-
-    // שליפת טווח תאריכים מהענן (לדו״ח)
-    window.cloudFetchRange = async (fromISO, toISO) => {
-      const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
-      const snap = await getDocs(q1);
-      const items = [];
-      snap.forEach(d => items.push(d.data()));
-      items.sort((a,b)=> (a.date||'').localeCompare(b.date||''));
-      return items;
-    };
-
-    // האזנה חיה ליום נבחר
-    window.onSelectDate = (dateISO) => {
-      if (window._unsub) window._unsub();
-      const q = query(tasksCol, where("date", "==", dateISO));
-      window._unsub = onSnapshot(q, (snap) => {
-        const items = snap.docs.map(d => d.data());
-        const todayISO = new Date().toISOString().slice(0,10);
-        if (dateISO === todayISO && window.renderTasksForToday) window.renderTasksForToday(items);
-      });
-    };
   </script>
 </body>
 </html>
