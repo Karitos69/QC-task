@@ -135,7 +135,7 @@
   </div>
 
   <!-- jsPDF ליצוא PDF -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-YkDqg2D4YkRJAxFQ90Gf0y7qg8yx3dQzXjX5fO6y2g2bFhI0kq1pXrD1J6mYqG0xA9uWfR7o6q0ohkP9fQeA7Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
   <script>
     // ===== Utilities =====
@@ -171,17 +171,25 @@
     function loadLastOpened(){ return localStorage.getItem(LS_LAST_OPENED); }
     function saveLastOpened(v){ localStorage.setItem(LS_LAST_OPENED, v); }
 
-    // מעביר כל משימה לא-בוצעה מתאריך עבר → להיום (local)
+    // העברה אוטומטית: כל משימה מהעבר שאינה DONE → זזה יום-אחרי-יום עד שתגיע להיום
     function migrateForwardLocal(){
-      const today = new Date(); const todayISO = toISODate(today);
+      const today = new Date();
       const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const todayISO = toISODate(today);
       let changed = false;
+
       for(const t of tasks){
         if(!t.date) continue;
-        const d = fromISO(t.date);
-        if(d < todayDate && t.status !== STATUS.DONE){
-          t.date = todayISO; changed = true;
+        if(t.status === STATUS.DONE) continue;
+        let d = fromISO(t.date);
+        d.setHours(0,0,0,0);
+
+        // מקדם יום-אחרי-יום עד להיום
+        while (d < todayDate) {
+          d = addDays(d, 1);
         }
+        const newISO = toISODate(d);
+        if (newISO !== t.date) { t.date = newISO; changed = true; }
       }
       if (changed) saveTasks();
     }
@@ -470,7 +478,8 @@
       tasks = loadTasks();
 
       const last = loadLastOpened();
-      const todayISO = toISODate(new Date());
+      const today = new Date();
+      const todayISO = toISODate(today);
       if(!last){ saveLastOpened(todayISO); migrateForwardLocal(); }
       else if(last !== todayISO){ migrateForwardLocal(); saveLastOpened(todayISO); }
 
@@ -478,18 +487,15 @@
       currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       renderAll();
 
-      // אם יש ענן, נעשה מיגרציה גם בו ואז נרענן את היום
+      // אם יש ענן, נעשה גם מיגרציה בענן ואז נאזין ליום הנוכחי
       if (window.cloudEnsureReady) {
         try {
           await window.cloudEnsureReady();
-          if (window.cloudMigrateForward) await window.cloudMigrateForward(); // מעביר משימות עבר לא-בוצעו להיום
-          // אחרי מיגרציה – להאזין ליום הנוכחי
+          if (window.cloudMigrateForward) await window.cloudMigrateForward(); // מקדם משימות עבר הלא-בוצעו קדימה עד להיום
           if (window.onSelectDate) window.onSelectDate(todayISO);
         } catch(e){
           console.warn('ענן לא זמין כרגע:', e);
         }
-      } else {
-        // local-only: כבר טיפלנו
       }
     }
     init();
@@ -538,7 +544,7 @@
     window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
     window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
 
-    // מיגרציה בענן: מעביר כל משימה מהעבר שלא DONE להיום
+    // מיגרציה בענן: כל משימה מתאריך עבר שאינה DONE → נקדֵם יום-ביום עד להיום (בפועל נעדכן ל"היום")
     window.cloudMigrateForward = async () => {
       const snap = await getDocs(tasksCol);
       const todayISO = new Date().toISOString().slice(0,10);
@@ -546,7 +552,9 @@
       snap.forEach(dref => {
         const t = dref.data();
         if (!t.date) return;
-        if (t.date < todayISO && t.status !== 'done') {
+        if (t.status === 'done') return;
+        if (t.date < todayISO) {
+          // כדי לחקות \"יום אחרי יום\", התוצאה הסופית היא היום
           updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
         }
       });
@@ -555,13 +563,10 @@
 
     // טווח תאריכים מהענן
     window.cloudFetchRange = async (fromISO, toISO) => {
-      // מאחר ו-date בפורמט YYYY-MM-DD – אפשר לסנן לקסיקוגרפית
-      // Firestore דורש שהטווח יהיה על אותו שדה, זה עומד בזה.
       const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
       const snap = await getDocs(q1);
       const items = [];
       snap.forEach(d => items.push(d.data()));
-      // אין צורך למיין, אבל אפשר:
       items.sort((a,b)=> (a.date||'').localeCompare(b.date||''));
       return items;
     };
