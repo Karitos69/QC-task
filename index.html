@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>מנהל משימות – HTML (תיקון בחירת ימים)</title>
+  <title>מנהל משימות – HTML</title>
   <style>
     :root{--bg:#f7f7f8;--card:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--accent:#111}
     *{box-sizing:border-box}
@@ -25,7 +25,7 @@
     .task{border:1px solid var(--border);border-radius:14px;padding:10px}
     .task .muted{color:var(--muted);font-size:.9rem}
     .task .line-through{text-decoration:line-through;color:#9ca3af}
-    .select, input[type="text"], input[type="datetime-local"]{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px}
+    .select, input[type="text"], input[type="datetime-local"], input[type="date"]{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px}
     .calendar{padding:14px}
     .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
     .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
@@ -41,6 +41,7 @@
     .subtask-row{display:flex;gap:8px}
     .subtask-row input{flex:1}
     .footer{margin-top:22px;text-align:center;color:var(--muted);font-size:.8rem}
+    .row.gap-12{gap:12px}
   </style>
 </head>
 <body>
@@ -61,34 +62,25 @@
           </div>
           <div id="calGrid" class="cal-grid" role="grid" aria-label="לוח שנה"></div>
         </div>
-
-        <div class="card section" style="margin-top:12px">
-          <div class="row space-between">
-            <h3 class="title" id="selDateTitle"></h3>
-            <button id="addTaskBtn" class="btn primary">＋ הוסף משימה</button>
-          </div>
-          <div id="selectedList" class="list"></div>
-        </div>
       </div>
 
-      <!-- עמודת מסך ראשי -->
+      <!-- עמודת משימות שיש לבצע -->
       <div class="grid" style="grid-template-columns:1fr">
         <div class="card section">
-          <h2 class="title">היום – <span id="todayLabel"></span></h2>
-          <p class="subtitle">משימות של היום בלבד</p>
-          <div id="todayList" class="list"></div>
-        </div>
-        <div class="card section">
           <div class="row space-between">
-            <h3 class="title">תזכורות לשבוע הקרוב</h3>
-            <span class="chip" id="remCount">0</span>
+            <h2 class="title">משימות שיש לבצע – <span id="todayLabel"></span></h2>
+            <div class="row gap-12">
+              <button id="reportBtn" class="btn">דו״ח PDF</button>
+              <button id="addTaskBtn" class="btn primary">＋ הוסף משימה</button>
+            </div>
           </div>
-          <div id="remindersList" class="list"></div>
+          <p class="subtitle">רק משימות ליום הנוכחי</p>
+          <div id="todayList" class="list"></div>
         </div>
       </div>
     </div>
 
-    <div class="footer">גרסת HTML אחת • שמירה ב־localStorage • RTL • כולל תיקון בחירת ימים</div>
+    <div class="footer">גרסת HTML אחת • שמירה ב־localStorage/Firestore • RTL</div>
   </div>
 
   <!-- Modal הוספת/עריכת משימה -->
@@ -105,7 +97,6 @@
     <div style="margin-top:10px">
       <label for="taskReminder">תזכורת (אופציונלי)</label>
       <input type="datetime-local" id="taskReminder" />
-      <div class="subtitle" style="margin:6px 0 0">תזכורות מוצגות רק לשבוע הקרוב</div>
     </div>
     <div style="margin-top:10px">
       <div class="row space-between">
@@ -119,6 +110,32 @@
       <button class="btn primary" id="saveTask">שמור</button>
     </div>
   </div>
+
+  <!-- Modal דו״ח PDF -->
+  <div id="reportBackdrop" class="backdrop"></div>
+  <div id="reportModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+    <div class="row space-between">
+      <h3 id="reportTitle" class="title" style="margin:0">הפקת דו״ח PDF לפי טווח תאריכים</h3>
+      <button class="btn" id="closeReport">סגור</button>
+    </div>
+    <div class="row" style="gap:12px;margin-top:10px">
+      <div style="flex:1">
+        <label for="fromDate">מתאריך</label>
+        <input type="date" id="fromDate" />
+      </div>
+      <div style="flex:1">
+        <label for="toDate">עד תאריך</label>
+        <input type="date" id="toDate" />
+      </div>
+    </div>
+    <div class="row" style="justify-content:end;margin-top:14px;gap:8px">
+      <button class="btn" id="cancelReport">ביטול</button>
+      <button class="btn primary" id="exportPdf">ייצא PDF</button>
+    </div>
+  </div>
+
+  <!-- jsPDF ליצוא PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-YkDqg2D4YkRJAxFQ90Gf0y7qg8yx3dQzXjX5fO6y2g2bFhI0kq1pXrD1J6mYqG0xA9uWfR7o6q0ohkP9fQeA7Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
   <script>
     // ===== Utilities =====
@@ -154,16 +171,19 @@
     function loadLastOpened(){ return localStorage.getItem(LS_LAST_OPENED); }
     function saveLastOpened(v){ localStorage.setItem(LS_LAST_OPENED, v); }
 
-    function migrateForward(){
-      const today = new Date();
+    // מעביר כל משימה לא-בוצעה מתאריך עבר → להיום (local)
+    function migrateForwardLocal(){
+      const today = new Date(); const todayISO = toISODate(today);
       const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      let changed = false;
       for(const t of tasks){
         if(!t.date) continue;
         const d = fromISO(t.date);
         if(d < todayDate && t.status !== STATUS.DONE){
-          t.date = toISODate(today); // העברה ליום הנוכחי
+          t.date = todayISO; changed = true;
         }
       }
+      if (changed) saveTasks();
     }
 
     // ===== Calendar =====
@@ -198,7 +218,6 @@
         if(isSameDay(day, selectedDate)) { btn.classList.add('selected'); btn.setAttribute('aria-pressed','true'); }
         btn.addEventListener('click', ()=>{
           selectedDate = new Date(day);
-          renderSelectedDate();
           renderCalendar();
           if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate)); // חיבור לענן
         });
@@ -209,16 +228,6 @@
     // ===== Rendering Tasks =====
     function tasksFor(dateISO){ return tasks.filter(t=>t.date===dateISO); }
 
-    function renderSelectedDate(){
-      const title = document.getElementById('selDateTitle');
-      title.textContent = `משימות לתאריך ${fmtDate(selectedDate)}`;
-      const list = document.getElementById('selectedList');
-      list.innerHTML = '';
-      const items = tasksFor(toISODate(selectedDate));
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין משימות לתאריך זה.</div>'; return; }
-      for(const t of items){ list.appendChild(taskRow(t)); }
-    }
-
     function renderToday(){
       document.getElementById('todayLabel').textContent = fmtDate(new Date());
       const list = document.getElementById('todayList');
@@ -226,32 +235,6 @@
       const items = tasksFor(toISODate(new Date()));
       if(items.length===0){ list.innerHTML = '<div class="subtitle">אין משימות להיום. אפשר להוסיף מלוח השנה.</div>'; return; }
       for(const t of items){ list.appendChild(taskRow(t)); }
-    }
-
-    function renderReminders(){
-      const now = new Date();
-      const in7 = addDays(now,7);
-      const items = tasks
-        .filter(t=>t.reminder)
-        .map(t=>({ ...t, r:new Date(t.reminder) }))
-        .filter(t=> t.r>=now && t.r<=in7)
-        .sort((a,b)=> a.r - b.r);
-      document.getElementById('remCount').textContent = items.length;
-      const list = document.getElementById('remindersList');
-      list.innerHTML = '';
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">אין תזכורות בשבוע הקרוב.</div>'; return; }
-      for(const t of items){
-        const div = document.createElement('div');
-        div.className = 'task row space-between';
-        const left = document.createElement('div');
-        left.className = 'row';
-        left.innerHTML = `⏰ <span style="font-weight:600">${escapeHtml(t.title)}</span>`;
-        const right = document.createElement('div');
-        right.className = 'muted';
-        right.textContent = new Intl.DateTimeFormat('he-IL', { weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'}).format(t.r);
-        div.append(left,right);
-        list.appendChild(div);
-      }
     }
 
     function taskRow(t){
@@ -389,17 +372,44 @@
 
     backdrop.addEventListener('click', closeModal);
 
+    // ===== Report Modal =====
+    const reportBackdrop = document.getElementById('reportBackdrop');
+    const reportModal = document.getElementById('reportModal');
+    const openReport = () => { reportBackdrop.classList.add('show'); reportModal.classList.add('show'); };
+    const closeReport = () => { reportBackdrop.classList.remove('show'); reportModal.classList.remove('show'); };
+
+    document.getElementById('reportBtn').onclick = openReport;
+    document.getElementById('closeReport').onclick = closeReport;
+    document.getElementById('cancelReport').onclick = closeReport;
+    reportBackdrop.addEventListener('click', closeReport);
+
+    document.getElementById('exportPdf').onclick = async ()=>{
+      const from = document.getElementById('fromDate').value;
+      const to   = document.getElementById('toDate').value;
+      if(!from || !to){ alert('נא לבחור טווח תאריכים מלא'); return; }
+      if(from > to){ alert('טווח תאריכים לא תקין'); return; }
+      try{
+        let items = [];
+        if (window.cloudFetchRange) {
+          items = await window.cloudFetchRange(from, to);
+        } else {
+          // localStorage
+          const local = loadTasks();
+          items = local.filter(t => t.date && t.date >= from && t.date <= to);
+        }
+        exportTasksToPdf(items, from, to);
+        closeReport();
+      }catch(err){
+        console.error(err);
+        alert('אירעה שגיאה ביצירת הדו״ח');
+      }
+    };
+
     // ===== Navigation buttons =====
     document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
     document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
 
     // ===== Adapters לנתונים שמגיעים מהענן =====
-    window.renderTasksForSelected = (items) => {
-      const dateISO = toISODate(selectedDate);
-      tasks = tasks.filter(t => t.date !== dateISO).concat(items);
-      renderSelectedDate();
-      renderToday();
-    };
     window.renderTasksForToday = (items) => {
       const todayISO = toISODate(new Date());
       tasks = tasks.filter(t => t.date !== todayISO).concat(items);
@@ -409,24 +419,78 @@
     // ===== Helpers =====
     function renderAll(){
       renderCalendar();
-      renderSelectedDate();
       renderToday();
-      renderReminders();
     }
 
     function escapeHtml(s){ return s.replace(/[&<>\"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+    // יצוא PDF
+    function exportTasksToPdf(items, from, to){
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const marginX = 40;
+      let y = 48;
+
+      const title = `דו״ח משימות ${from}–${to}`;
+      doc.setFont('helvetica','bold'); doc.setFontSize(16);
+      doc.text(title, marginX, y); y += 20;
+
+      // חלוקה לקבוצות
+      const done = items.filter(t => t.status === STATUS.DONE);
+      const notDone = items.filter(t => t.status !== STATUS.DONE);
+
+      doc.setFont('helvetica','normal'); doc.setFontSize(12);
+
+      const section = (header, arr) => {
+        y += 10;
+        doc.setFont('helvetica','bold'); doc.text(header, marginX, y); y += 12;
+        doc.setFont('helvetica','normal');
+        if(arr.length === 0){
+          doc.text('— אין פריטים —', marginX, y); y += 16;
+          return;
+        }
+        for(const t of arr){
+          const line = `• ${t.title || '(ללא כותרת)'} — תאריך: ${t.date || '—'} — סטטוס: ${STATUS_LABEL[t.status] || t.status}`;
+          const parts = doc.splitTextToSize(line, 515);
+          if (y + parts.length*14 > 800) { doc.addPage(); y = 48; }
+          doc.text(parts, marginX, y);
+          y += parts.length*14 + 6;
+        }
+      };
+
+      section('סעיף 1: משימות שסומנו כ"בוצע" בטווח', done);
+      section('סעיף 2: משימות שלא נסגרו בטווח', notDone);
+
+      const filename = `tasks_report_${from}_to_${to}.pdf`;
+      doc.save(filename);
+    }
+
     // ===== Init =====
-    function init(){
+    async function init(){
       tasks = loadTasks();
+
       const last = loadLastOpened();
       const todayISO = toISODate(new Date());
-      if(!last){ saveLastOpened(todayISO); migrateForward(); saveTasks(); }
-      else if(last !== todayISO){ migrateForward(); saveTasks(); saveLastOpened(todayISO); }
+      if(!last){ saveLastOpened(todayISO); migrateForwardLocal(); }
+      else if(last !== todayISO){ migrateForwardLocal(); saveLastOpened(todayISO); }
 
       selectedDate = new Date();
       currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       renderAll();
+
+      // אם יש ענן, נעשה מיגרציה גם בו ואז נרענן את היום
+      if (window.cloudEnsureReady) {
+        try {
+          await window.cloudEnsureReady();
+          if (window.cloudMigrateForward) await window.cloudMigrateForward(); // מעביר משימות עבר לא-בוצעו להיום
+          // אחרי מיגרציה – להאזין ליום הנוכחי
+          if (window.onSelectDate) window.onSelectDate(todayISO);
+        } catch(e){
+          console.warn('ענן לא זמין כרגע:', e);
+        }
+      } else {
+        // local-only: כבר טיפלנו
+      }
     }
     init();
   </script>
@@ -453,6 +517,7 @@
     const db   = getFirestore(app);
     const tasksCol = collection(db, "tasks");
 
+    // התחברות אנונימית
     function ensureAuth() {
       return new Promise((resolve) => {
         onAuthStateChanged(auth, async (user) => {
@@ -462,7 +527,9 @@
       });
     }
 
-    // CRUD לענן — נחשף ל-UI הקיים
+    // ===== חשיפת פונקציות לענן =====
+    window.cloudEnsureReady = async () => { await ensureAuth(); };
+
     window.cloudAddTask = async (task) => {
       const id = task.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
       await setDoc(doc(tasksCol, id), { ...task, id });
@@ -470,37 +537,45 @@
     };
     window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
     window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
-    window.cloudRefreshReminders = async () => {
-      const now = new Date(), in7 = new Date(now.getTime()+7*24*60*60*1000);
+
+    // מיגרציה בענן: מעביר כל משימה מהעבר שלא DONE להיום
+    window.cloudMigrateForward = async () => {
       const snap = await getDocs(tasksCol);
-      const items = [];
-      snap.forEach(d => {
-        const t = d.data();
-        if (!t.reminder) return;
-        const r = new Date(t.reminder);
-        if (r >= now && r <= in7) items.push(t);
+      const todayISO = new Date().toISOString().slice(0,10);
+      const updates = [];
+      snap.forEach(dref => {
+        const t = dref.data();
+        if (!t.date) return;
+        if (t.date < todayISO && t.status !== 'done') {
+          updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
+        }
       });
-      items.sort((a,b)=> new Date(a.reminder)-new Date(b.reminder));
+      await Promise.all(updates);
+    };
+
+    // טווח תאריכים מהענן
+    window.cloudFetchRange = async (fromISO, toISO) => {
+      // מאחר ו-date בפורמט YYYY-MM-DD – אפשר לסנן לקסיקוגרפית
+      // Firestore דורש שהטווח יהיה על אותו שדה, זה עומד בזה.
+      const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
+      const snap = await getDocs(q1);
+      const items = [];
+      snap.forEach(d => items.push(d.data()));
+      // אין צורך למיין, אבל אפשר:
+      items.sort((a,b)=> (a.date||'').localeCompare(b.date||''));
       return items;
     };
 
-    // האזנה חיה לפי תאריך
+    // האזנה חיה ליום נבחר
     window.onSelectDate = (dateISO) => {
       if (window._unsub) window._unsub();
       const q = query(tasksCol, where("date", "==", dateISO));
       window._unsub = onSnapshot(q, (snap) => {
         const items = snap.docs.map(d => d.data());
-        if (window.renderTasksForSelected) window.renderTasksForSelected(items);
         const todayISO = new Date().toISOString().slice(0,10);
         if (dateISO === todayISO && window.renderTasksForToday) window.renderTasksForToday(items);
       });
     };
-
-    // התחברות והאזנה ברירת-מחדל (ללא top-level await)
-    (async () => {
-      await ensureAuth();
-      window.onSelectDate(new Date().toISOString().slice(0,10));
-    })();
   </script>
 </body>
 </html>
