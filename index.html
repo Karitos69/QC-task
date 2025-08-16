@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="en" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Task Manager – HTML (Firestore + Auto-migrate + PDF)</title>
+  <title>Task Manager – RTL + Firestore + Modal Edit</title>
   <style>
     :root{--bg:#f7f7f8;--card:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--accent:#111}
     *{box-sizing:border-box}
@@ -20,25 +20,33 @@
     .btn{border:1px solid var(--border);background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer}
     .btn:hover{background:#f3f4f6}
     .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);font-size:.8rem;background:#fafafa}
     .list{display:flex;flex-direction:column;gap:10px}
     .task{border:1px solid var(--border);border-radius:14px;padding:10px}
     .task .muted{color:var(--muted);font-size:.9rem}
     .task .line-through{text-decoration:line-through;color:#9ca3af}
+    .select, input[type="text"], input[type="datetime-local"], input[type="date"]{width:100%;border:1px solid var(--border);border-radius:12px;padding:10px}
     .calendar{padding:14px}
     .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+    .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:6px}
     .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
     .cal-day{aspect-ratio:1/1;border:1px solid var(--border);border-radius:12px;background:#fff;cursor:pointer}
     .cal-day.out{opacity:.35}
     .cal-day.today{border-color:#111}
     .cal-day.selected{background:#111;color:#fff;border-color:#111}
-    .cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;text-align:center;color:var(--muted);font-size:.85rem;margin-bottom:6px}
+    .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none}
+    .modal{position:fixed;inset-inline:0;top:8vh;margin-inline:auto;width:min(640px,92vw);background:#fff;border-radius:18px;border:1px solid var(--border);padding:16px 16px 14px;display:none}
+    .backdrop.show,.modal.show{display:block}
+    .subtasks{display:flex;flex-direction:column;gap:8px}
+    .subtask-row{display:flex;gap:8px}
+    .subtask-row input{flex:1}
     .footer{margin-top:22px;text-align:center;color:var(--muted);font-size:.8rem}
   </style>
 </head>
 <body>
   <div class="container">
     <div class="grid">
-      <!-- Calendar -->
+      <!-- Calendar column -->
       <div>
         <div class="card calendar">
           <div class="cal-head">
@@ -63,18 +71,49 @@
         </div>
       </div>
 
-      <!-- Main -->
+      <!-- Today column -->
       <div class="grid" style="grid-template-columns:1fr">
         <div class="card section">
-          <h2 class="title">Today – <span id="todayLabel"></span></h2>
-          <p class="subtitle">Tasks to complete</p>
+          <div class="row space-between">
+            <h2 class="title">Today — <span id="todayLabel"></span></h2>
+            <button class="btn primary" id="exportPdfBtn">📄 Export PDF</button>
+          </div>
+          <p class="subtitle">Tasks to complete (auto-carry forward until done)</p>
           <div id="todayList" class="list"></div>
-          <button class="btn primary" id="exportPdfBtn" style="margin-top:10px">📄 Export PDF</button>
         </div>
       </div>
     </div>
 
-    <div class="footer">HTML Task Manager • Firestore + Local fallback • Auto carry-forward • PDF Export</div>
+    <div class="footer">RTL layout • English UI • Firestore + local fallback • Auto carry-forward • PDF Export • Edit in modal</div>
+  </div>
+
+  <!-- Add/Edit Task Modal (restored, English labels, RTL layout) -->
+  <div id="backdrop" class="backdrop"></div>
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="row space-between">
+      <h3 id="modalTitle" class="title" style="margin:0">Add Task</h3>
+      <button class="btn" id="closeModal">Close</button>
+    </div>
+    <div style="margin-top:10px">
+      <label for="taskTitle">Task title</label>
+      <input type="text" id="taskTitle" placeholder="What needs to be done?" />
+    </div>
+    <div style="margin-top:10px">
+      <label for="taskReminder">Reminder (optional)</label>
+      <input type="datetime-local" id="taskReminder" />
+      <div class="subtitle" style="margin:6px 0 0">Reminders are informational only</div>
+    </div>
+    <div style="margin-top:10px">
+      <div class="row space-between">
+        <label>Subtasks (optional)</label>
+        <button class="btn" id="addSubtask">Add subtask</button>
+      </div>
+      <div id="subtasks" class="subtasks"></div>
+    </div>
+    <div class="row" style="justify-content:end;margin-top:14px;gap:8px">
+      <button class="btn" id="cancelModal">Cancel</button>
+      <button class="btn primary" id="saveTask">Save</button>
+    </div>
   </div>
 
   <!-- jsPDF -->
@@ -84,7 +123,8 @@
     // ===== App (UI + local fallback) =====
     const { jsPDF } = window.jspdf;
     const STATUS = { TODO:'todo', IN_PROGRESS:'in_progress', DEFERRED:'deferred', DONE:'done' };
-    const LS_TASKS = 'task_manager_tasks_html_fs_v1';
+    const STATUS_LABEL = { todo:'New', in_progress:'In Progress', deferred:'Deferred', done:'Done' };
+    const LS_TASKS = 'task_manager_tasks_html_fs_rtl_v1';
 
     const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
     const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -92,8 +132,6 @@
     const isSameDay = (a,b) => a.toDateString()===b.toDateString();
     const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
     const fmtDate = (d, opts) => new Intl.DateTimeFormat('en-GB', opts || { day:'2-digit', month:'short', year:'numeric' }).format(d);
-    const fmtDay = (d) => new Intl.DateTimeFormat('en-GB', { day:'numeric'}).format(d);
-    const fmtMonthLabel = (d) => new Intl.DateTimeFormat('en-GB', { month:'long', year:'numeric'}).format(d);
 
     function loadTasks(){ try{ return JSON.parse(localStorage.getItem(LS_TASKS))||[]; }catch{return [];} }
     function saveTasks(){ localStorage.setItem(LS_TASKS, JSON.stringify(tasks)); }
@@ -108,164 +146,200 @@
       }catch{return null;}
     }
 
-    // App state
-    let tasks = [];            // local cache (used also with cloud)
+    // State
+    let tasks = []; // local cache (also mirrors cloud)
     let selectedDate = new Date();
     let currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    let editingId = null; // null = add, otherwise edit
 
-    // Auto-carry forward (local cache) – moves every non-Done past task forward day-by-day until today
+    // Auto-carry forward (local cache)
     function migrateForwardLocal(){
       const today = new Date(); today.setHours(0,0,0,0);
-      let changed = false;
+      let changed=false;
       for(const t of tasks){
-        if(t.status==='done' || t.status=== 'DONE') continue;
-        const iso = normalizeToISODate(t.date);
-        if(!iso) continue;
+        if((t.status||'').toLowerCase()==='done') continue;
+        const iso = normalizeToISODate(t.date); if(!iso) continue;
         let d = fromISO(iso); d.setHours(0,0,0,0);
         while(d < today){ d = addDays(d,1); }
         const newISO = toISODate(d);
-        if(newISO !== iso){ t.date = newISO; changed = true; }
+        if(newISO!==iso){ t.date=newISO; changed=true; }
       }
       if(changed) saveTasks();
     }
 
-    // Calendar
+    // Calendar helpers
     function startOfWeek(d){ const r=new Date(d); const day=r.getDay(); r.setDate(r.getDate()-day); r.setHours(0,0,0,0); return r; }
     function endOfWeek(d){ const r=startOfWeek(d); r.setDate(r.getDate()+6); return r; }
+    function fmtMonthLabel(d){ return new Intl.DateTimeFormat('en-GB',{month:'long',year:'numeric'}).format(d); }
+    function fmtDay(d){ return new Intl.DateTimeFormat('en-GB',{day:'numeric'}).format(d); }
 
     function renderCalendar(){
       document.getElementById('monthLabel').textContent = fmtMonthLabel(currentMonth);
-      const grid = document.getElementById('calGrid'); grid.innerHTML='';
+      const grid=document.getElementById('calGrid'); grid.innerHTML='';
       const start = startOfWeek(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
       const endMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 0);
       const end = endOfWeek(endMonth);
       for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
-        const day = new Date(d);
-        const btn = document.createElement('button'); btn.type='button'; btn.className='cal-day'; btn.textContent = fmtDay(day);
+        const day=new Date(d);
+        const btn=document.createElement('button');
+        btn.type='button'; btn.className='cal-day'; btn.textContent=fmtDay(day);
         if(day.getMonth()!==currentMonth.getMonth()) btn.classList.add('out');
         if(isSameDay(day,new Date())) btn.classList.add('today');
         if(isSameDay(day,selectedDate)) btn.classList.add('selected');
-        btn.addEventListener('click', ()=>{
-          selectedDate = new Date(day);
-          renderCalendar();
-          renderSelected();
-          // refresh cloud listener to selected date
-          if(window.cloudOnSelectDate) window.cloudOnSelectDate(toISODate(selectedDate));
-        });
+        btn.addEventListener('click',()=>{ selectedDate=new Date(day); renderCalendar(); renderSelected(); if(window.cloudOnSelectDate) window.cloudOnSelectDate(toISODate(selectedDate)); });
         grid.appendChild(btn);
       }
     }
 
-    function tasksFor(dateISO){ return tasks.filter(t=> normalizeToISODate(t.date) === dateISO); }
+    // Rendering
+    function tasksFor(dateISO){ return tasks.filter(t=> normalizeToISODate(t.date)===dateISO); }
+
+    function renderSubtasks(t){
+      if(!t.subtasks||!t.subtasks.length) return null;
+      const wrap=document.createElement('div'); wrap.style.marginTop='8px';
+      t.subtasks.forEach(st=>{
+        const lab=document.createElement('label'); lab.className='row'; lab.style.gap='8px';
+        const c=document.createElement('input'); c.type='checkbox'; c.checked=!!st.done;
+        c.onchange=async()=>{
+          const newSubs=t.subtasks.map(s=> s.id===st.id?{...s,done:c.checked}:s);
+          if(window.cloudUpdateTask){ try{ await window.cloudUpdateTask(t.id,{subtasks:newSubs}); }catch(e){ console.warn(e);} }
+          st.done=c.checked; saveTasks();
+        };
+        const sp=document.createElement('span'); sp.textContent=st.text||''; if(st.done) sp.classList.add('line-through','muted');
+        lab.append(c,sp); wrap.appendChild(lab);
+      });
+      return wrap;
+    }
 
     function taskRow(t){
-      const wrap = document.createElement('div'); wrap.className='task';
-      const top = document.createElement('div'); top.className='row space-between';
-      const left = document.createElement('div'); left.className='row';
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = (t.status==='done' || t.status==='DONE');
-      cb.onchange = async ()=>{
-        const newStatus = cb.checked ? 'done' : 'todo';
-        if(window.cloudUpdateTask){ try{ await window.cloudUpdateTask(t.id, { status: newStatus }); } catch(e){ console.warn(e);} }
-        t.status = newStatus; saveTasks(); renderAll();
+      const wrap=document.createElement('div'); wrap.className='task';
+      const top=document.createElement('div'); top.className='row space-between';
+      const left=document.createElement('div'); left.className='row';
+
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=(t.status||'')==='done';
+      cb.onchange=async()=>{
+        const newStatus=cb.checked?'done':'todo';
+        if(window.cloudUpdateTask){ try{ await window.cloudUpdateTask(t.id,{status:newStatus}); }catch(e){ console.warn(e);} }
+        t.status=newStatus; saveTasks(); renderAll();
       };
-      const ttl = document.createElement('div'); ttl.textContent = t.title || '(No title)'; ttl.style.fontWeight='600';
-      if(cb.checked) ttl.classList.add('line-through');
-      left.append(cb, ttl);
-      const del = document.createElement('button'); del.className='btn'; del.textContent='Delete';
-      del.onclick = async ()=>{
-        if(window.cloudDeleteTask){ try{ await window.cloudDeleteTask(t.id); } catch(e){ console.warn(e); } }
-        tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll();
-      };
-      top.append(left, del);
-      wrap.append(top);
+      const ttl=document.createElement('div'); ttl.textContent=t.title||'(No title)'; ttl.style.fontWeight='600'; if((t.status||'')==='done') ttl.classList.add('line-through');
+      left.append(cb,ttl);
+
+      const right=document.createElement('div'); right.className='row';
+      const editBtn=document.createElement('button'); editBtn.className='btn'; editBtn.textContent='Edit';
+      editBtn.onclick=()=> openModal('edit', t);
+      const delBtn=document.createElement('button'); delBtn.className='btn'; delBtn.textContent='Delete';
+      delBtn.onclick=async()=>{ if(window.cloudDeleteTask){ try{ await window.cloudDeleteTask(t.id);}catch(e){console.warn(e);} } tasks=tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll(); };
+      right.append(editBtn,delBtn);
+
+      top.append(left,right); wrap.append(top);
+
+      const st=renderSubtasks(t); if(st) wrap.appendChild(st);
       return wrap;
     }
 
     function renderSelected(){
-      const selISO = toISODate(selectedDate);
+      const selISO=toISODate(selectedDate);
       document.getElementById('selDateTitle').textContent = `Tasks for ${fmtDate(selectedDate)}`;
-      const list = document.getElementById('selectedList'); list.innerHTML = '';
-      const items = tasksFor(selISO);
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks</div>'; return; }
-      for(const t of items){ list.appendChild(taskRow(t)); }
+      const list=document.getElementById('selectedList'); list.innerHTML='';
+      const items=tasksFor(selISO); if(items.length===0){ list.innerHTML='<div class="subtitle">No tasks</div>'; return; }
+      items.forEach(t=> list.appendChild(taskRow(t)));
     }
 
     function renderToday(){
       document.getElementById('todayLabel').textContent = fmtDate(new Date());
-      const list = document.getElementById('todayList'); list.innerHTML = '';
-      const items = tasksFor(toISODate(new Date()));
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks for today</div>'; return; }
-      for(const t of items){ list.appendChild(taskRow(t)); }
+      const list=document.getElementById('todayList'); list.innerHTML='';
+      const items=tasksFor(toISODate(new Date())); if(items.length===0){ list.innerHTML='<div class="subtitle">No tasks for today</div>'; return; }
+      items.forEach(t=> list.appendChild(taskRow(t)));
     }
 
     function renderAll(){ renderCalendar(); renderSelected(); renderToday(); }
 
-    // UI events
-    document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
-    document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
-
-    document.getElementById('addTaskBtn').onclick = async ()=>{
-      const title = prompt('Task title?');
-      if(!title) return;
-      const newTask = { id: uid(), title, date: toISODate(selectedDate), status: 'todo' };
-      // cloud first
-      if(window.cloudAddTask){
-        try{ await window.cloudAddTask(newTask); } catch(e){ console.warn(e); tasks.push(newTask); saveTasks(); }
-      } else {
-        tasks.push(newTask); saveTasks();
-      }
-      renderAll();
+    // ===== Modal logic (Add/Edit) =====
+    const backdrop=document.getElementById('backdrop');
+    const modal=document.getElementById('modal');
+    const openModal=(mode='add', task=null)=>{
+      editingId = (mode==='edit' && task)? task.id : null;
+      document.getElementById('modalTitle').textContent = (editingId? 'Edit Task' : 'Add Task');
+      document.getElementById('taskTitle').value = task? (task.title||'') : '';
+      document.getElementById('taskReminder').value = task && task.reminder? String(task.reminder).slice(0,16) : '';
+      const stWrap=document.getElementById('subtasks'); stWrap.innerHTML='';
+      const subs = task && Array.isArray(task.subtasks)? task.subtasks : [];
+      subs.forEach(st=>{ const row=addSubtaskRow(st.text||''); const chk=row.querySelector('input[type="checkbox"]'); if(chk) chk.checked=!!st.done; });
+      backdrop.classList.add('show'); modal.classList.add('show');
     };
+    const closeModal=()=>{ backdrop.classList.remove('show'); modal.classList.remove('show'); resetModal(); };
+    const resetModal=()=>{ document.getElementById('taskTitle').value=''; document.getElementById('taskReminder').value=''; document.getElementById('subtasks').innerHTML=''; editingId=null; };
 
-    document.getElementById('exportPdfBtn').onclick = async ()=>{
-      const from = prompt('From (YYYY-MM-DD)');
-      const to   = prompt('To (YYYY-MM-DD)');
-      if(!from || !to) return;
-      if(from > to){ alert('Invalid range'); return; }
-      let items = [];
-      if(window.cloudFetchRange){
-        try{ items = await window.cloudFetchRange(from, to); }
-        catch(e){ console.warn(e); items = tasks; }
-      } else {
-        items = tasks;
-      }
-      items = items
-        .map(t=> ({...t, date: normalizeToISODate(t.date)}))
-        .filter(t=> t.date && t.date>=from && t.date<=to);
-      exportTasksToPdf(items, from, to);
-    };
+    document.getElementById('closeModal').onclick=closeModal;
+    document.getElementById('cancelModal').onclick=closeModal;
+    backdrop.addEventListener('click', (e)=>{ if(e.target===backdrop) closeModal(); });
 
-    function exportTasksToPdf(items, from, to){
-      const doc = new jsPDF({ unit:'pt', format:'a4' });
-      const marginX = 40; let y=48;
-      doc.setFont('helvetica','bold'); doc.setFontSize(16);
-      doc.text(`Tasks Report ${from} – ${to}`, marginX, y); y+=20;
+    function addSubtaskRow(text=''){
+      const row=document.createElement('div'); row.className='subtask-row';
+      const done=document.createElement('input'); done.type='checkbox';
+      const input=document.createElement('input'); input.type='text'; input.placeholder='Subtask'; input.value=text;
+      const btn=document.createElement('button'); btn.className='btn'; btn.textContent='Remove'; btn.onclick=()=> row.remove();
+      row.append(done,input,btn); document.getElementById('subtasks').appendChild(row); return row;
+    }
+    document.getElementById('addSubtask').onclick=()=> addSubtaskRow('');
 
-      const done = items.filter(t=> (t.status==='done'||t.status==='DONE'));
-      const notDone = items.filter(t=> !(t.status==='done'||t.status==='DONE'));
+    document.getElementById('addTaskBtn').onclick=()=> openModal('add');
 
-      const section = (title, arr)=>{
-        y+=10; doc.setFont('helvetica','bold'); doc.text(title, marginX, y); y+=12;
-        doc.setFont('helvetica','normal'); doc.setFontSize(12);
-        if(arr.length===0){ doc.text('— None —', marginX, y); y+=16; return; }
-        for(const t of arr){
-          const line = `• ${t.title || '(No title)'} — Date: ${t.date || '—'} — Status: ${t.status}`;
-          const parts = doc.splitTextToSize(line, 515);
-          if(y + parts.length*14 > 800){ doc.addPage(); y=48; }
-          doc.text(parts, marginX, y); y += parts.length*14 + 6;
+    document.getElementById('saveTask').onclick=async()=>{
+      const title=document.getElementById('taskTitle').value.trim();
+      const reminder=document.getElementById('taskReminder').value || null;
+      const stEls=[...document.querySelectorAll('#subtasks .subtask-row')];
+      if(!title){ alert('Please enter a task title'); return; }
+      const subtasks = stEls.map(row=>({ id: uid(), text: row.querySelector('input[type="text"]').value.trim(), done: row.querySelector('input[type="checkbox"]').checked })).filter(s=> s.text!=='' );
+
+      if(editingId){
+        // update existing
+        const idx = tasks.findIndex(t=> t.id===editingId);
+        if(idx>-1){
+          const patch = { title, reminder, subtasks };
+          if(window.cloudUpdateTask){ try{ await window.cloudUpdateTask(editingId, patch); }catch(e){ console.warn(e);} }
+          tasks[idx] = { ...tasks[idx], ...patch };
         }
+      } else {
+        // add new for selected date
+        const newTask = { id: uid(), title, date: toISODate(selectedDate), status: 'todo', reminder, subtasks };
+        if(window.cloudAddTask){ try{ await window.cloudAddTask(newTask);} catch(e){ console.warn(e); tasks.push(newTask);} }
+        else { tasks.push(newTask); }
+      }
+      saveTasks(); closeModal(); renderAll();
+    };
+
+    // Month navigation
+    document.getElementById('prevMonth').onclick=()=>{ currentMonth=new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
+    document.getElementById('nextMonth').onclick=()=>{ currentMonth=new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
+
+    // PDF export
+    document.getElementById('exportPdfBtn').onclick=async()=>{
+      const from=prompt('From (YYYY-MM-DD)');
+      const to=prompt('To (YYYY-MM-DD)');
+      if(!from||!to) return; if(from>to){ alert('Invalid range'); return; }
+      let items=[];
+      if(window.cloudFetchRange){ try{ items=await window.cloudFetchRange(from,to);} catch(e){ console.warn(e); items=tasks; } }
+      else { items=tasks; }
+      items = items.map(t=>({ ...t, date: normalizeToISODate(t.date)})).filter(t=> t.date && t.date>=from && t.date<=to);
+
+      const doc=new jsPDF({ unit:'pt', format:'a4' }); const marginX=40; let y=48;
+      doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text(`Tasks Report ${from} – ${to}`, marginX, y); y+=20;
+      const done=items.filter(t=> (t.status||'').toLowerCase()==='done');
+      const notDone=items.filter(t=> (t.status||'').toLowerCase()!=='done');
+      const section=(hdr,arr)=>{ y+=10; doc.setFont('helvetica','bold'); doc.text(hdr, marginX, y); y+=12; doc.setFont('helvetica','normal'); doc.setFontSize(12);
+        if(arr.length===0){ doc.text('— None —', marginX, y); y+=16; return; }
+        for(const t of arr){ const line=`• ${t.title||'(No title)'} — Date: ${t.date||'—'} — Status: ${(t.status||'').toString()}`; const parts=doc.splitTextToSize(line, 515); if(y+parts.length*14>800){ doc.addPage(); y=48; } doc.text(parts, marginX, y); y+=parts.length*14+6; }
       };
       section('Section 1: Completed within range', done);
       section('Section 2: Not completed within range', notDone);
       doc.save(`tasks_report_${from}_to_${to}.pdf`);
-    }
+    };
 
-    // Init (local first; cloud will override)
-    function init(){
-      tasks = loadTasks();
-      migrateForwardLocal();
-      renderAll();
-    }
+    // Init (local; cloud will hook and override lists)
+    function renderAllAndMaybeCloud(){ renderAll(); if(window.cloudOnSelectDate) window.cloudOnSelectDate(toISODate(selectedDate)); }
+    function init(){ tasks=loadTasks(); migrateForwardLocal(); renderAllAndMaybeCloud(); }
     init();
   </script>
 
@@ -275,7 +349,6 @@
     import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
     import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // === Your project config (same as before) ===
     const firebaseConfig = {
       apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
       authDomain: "qc-task.firebaseapp.com",
@@ -291,100 +364,63 @@
     const db   = getFirestore(app);
     const tasksCol = collection(db, "tasks");
 
-    function ensureAuth() {
-      return new Promise((resolve, reject) => {
-        onAuthStateChanged(auth, async (user) => {
-          try{
-            if (user) return resolve(user);
-            await signInAnonymously(auth);
-          }catch(e){ reject(e); }
-        });
-      });
-    }
+    function ensureAuth(){ return new Promise((resolve,reject)=>{ onAuthStateChanged(auth, async (user)=>{ try{ if(user) return resolve(user); await signInAnonymously(auth); }catch(e){ reject(e); } }); }); }
 
-    // ---- Cloud API exposed to the UI (window.*) ----
-    window.cloudAddTask = async (task) => {
-      const id = task.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
-      await setDoc(doc(tasksCol, id), { ...task, id });
-      return id;
-    };
-    window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
-    window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
+    // Cloud API
+    window.cloudAddTask = async (task)=>{ const id=task.id || (crypto.randomUUID? crypto.randomUUID(): String(Date.now())); await setDoc(doc(tasksCol,id),{...task,id}); return id; };
+    window.cloudUpdateTask = async (id, patch)=> updateDoc(doc(tasksCol, id), patch);
+    window.cloudDeleteTask = async (id)=> deleteDoc(doc(tasksCol, id));
 
-    // Move all non-done past tasks to today (end state = today)
-    window.cloudMigrateForward = async () => {
-      const todayISO = new Date().toISOString().slice(0,10);
-      const snap = await getDocs(tasksCol);
-      const updates = [];
-      snap.forEach(dref => {
-        const t = dref.data();
-        const status = (t.status||'').toLowerCase();
-        if (status === 'done') return;
-        const iso = (typeof t.date === 'string') ? t.date.slice(0,10)
-                  : (t.date && typeof t.date.toDate==='function') ? toISODate(t.date.toDate())
-                  : null;
-        if (!iso) return;
-        if (iso < todayISO) updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
-      });
-      await Promise.all(updates);
-    };
+    window.cloudFetchRange = async (fromISO,toISO)=>{ const q1=query(tasksCol, where('date','>=',fromISO), where('date','<=',toISO)); const snap=await getDocs(q1); const arr=[]; snap.forEach(d=>arr.push(d.data())); arr.sort((a,b)=> (a.date||'').localeCompare(b.date||'')); return arr; };
 
-    // Range fetch for PDF
-    window.cloudFetchRange = async (fromISO, toISO) => {
-      const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
-      const snap = await getDocs(q1);
-      const items = [];
-      snap.forEach(d => items.push(d.data()));
-      items.sort((a,b)=> (a.date||'').localeCompare(b.date||''));
-      return items;
-    };
-
-    // Live listeners: selected date & today
-    let _unsubSelected = null;
-    let _unsubToday    = null;
-
-    function applyItemsForDate(dateISO, items){
-      // merge cloud items into local cache for that date, replace same-date items
-      tasks = tasks.filter(t => (normalizeToISODate(t.date)!==dateISO)).concat(items);
-      localStorage.setItem(LS_TASKS, JSON.stringify(tasks));
-    }
-
-    window.cloudOnSelectDate = (dateISO) => {
-      if (_unsubSelected) _unsubSelected();
-      const qSel = query(tasksCol, where("date","==", dateISO));
-      _unsubSelected = onSnapshot(qSel, (snap)=>{
-        const items = snap.docs.map(d=>d.data());
-        applyItemsForDate(dateISO, items);
-        // if this is today as well – re-render both
-        if (dateISO === new Date().toISOString().slice(0,10)) {
+    window.cloudOnSelectDate = (dateISO)=>{
+      if(window._unsubSel) window._unsubSel();
+      const qSel=query(tasksCol, where('date','==',dateISO));
+      window._unsubSel = onSnapshot(qSel, (snap)=>{
+        const items=snap.docs.map(d=>d.data());
+        // replace that date in local cache
+        const norm=(v)=> (typeof v==='string')? v.slice(0,10) : (v && typeof v.toDate==='function')? `${v.toDate().toISOString().slice(0,10)}` : null;
+        tasks = tasks.filter(t=> norm(t.date)!==dateISO).concat(items);
+        localStorage.setItem('task_manager_tasks_html_fs_rtl_v1', JSON.stringify(tasks));
+        // re-render only the affected lists
+        const todayISO=new Date().toISOString().slice(0,10);
+        if(dateISO===todayISO) {
+          // also listen to today to keep it fresh
           renderToday();
         }
         renderSelected();
       });
     };
 
-    function subscribeToday(){
-      const todayISO = new Date().toISOString().slice(0,10);
-      if (_unsubToday) _unsubToday();
-      const qToday = query(tasksCol, where("date","==", todayISO));
-      _unsubToday = onSnapshot(qToday, (snap)=>{
-        const items = snap.docs.map(d=>d.data());
-        applyItemsForDate(todayISO, items);
-        renderToday();
-      });
-      // also ensure selected date has a listener
-      window.cloudOnSelectDate(toISODate(selectedDate));
+    async function migrateForwardCloud(){
+      const todayISO=new Date().toISOString().slice(0,10);
+      const snap=await getDocs(tasksCol);
+      const ups=[];
+      snap.forEach(dr=>{ const t=dr.data(); const st=(t.status||'').toLowerCase(); if(st==='done') return; const iso= (typeof t.date==='string')? t.date.slice(0,10) : (t.date && typeof t.date.toDate==='function')? t.date.toDate().toISOString().slice(0,10) : null; if(!iso) return; if(iso<todayISO) ups.push(updateDoc(doc(tasksCol,t.id),{date:todayISO})); });
+      if(ups.length) await Promise.all(ups);
     }
 
-    // Boot cloud
-    (async ()=>{
+    // Live today listener as well
+    function subscribeToday(){
+      const todayISO=new Date().toISOString().slice(0,10);
+      if(window._unsubToday) window._unsubToday();
+      const qT=query(tasksCol, where('date','==',todayISO));
+      window._unsubToday = onSnapshot(qT,(snap)=>{
+        const items=snap.docs.map(d=>d.data());
+        const norm=(v)=> (typeof v==='string')? v.slice(0,10) : (v && typeof v.toDate==='function')? `${v.toDate().toISOString().slice(0,10)}` : null;
+        tasks = tasks.filter(t=> norm(t.date)!==todayISO).concat(items);
+        localStorage.setItem('task_manager_tasks_html_fs_rtl_v1', JSON.stringify(tasks));
+        renderToday();
+      });
+    }
+
+    (async()=>{
       try{
         await ensureAuth();
-        await window.cloudMigrateForward();
-        subscribeToday(); // start live listeners (today + selected)
-      }catch(e){
-        console.warn('Cloud not available, local-only mode:', e);
-      }
+        await migrateForwardCloud();
+        subscribeToday();
+        window.cloudOnSelectDate(new Date().toISOString().slice(0,10));
+      }catch(e){ console.warn('Cloud not available; running local-only:', e); }
     })();
   </script>
 </body>
