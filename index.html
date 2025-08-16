@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Task Manager – HTML (Calendar Fixed)</title>
+  <title>Task Manager – HTML (Firestore + Auto-migrate + PDF)</title>
   <style>
     :root{--bg:#f7f7f8;--card:#fff;--text:#111;--muted:#6b7280;--border:#e5e7eb;--accent:#111}
     *{box-sizing:border-box}
@@ -38,7 +38,7 @@
 <body>
   <div class="container">
     <div class="grid">
-      <!-- Calendar column -->
+      <!-- Calendar -->
       <div>
         <div class="card calendar">
           <div class="cal-head">
@@ -63,7 +63,7 @@
         </div>
       </div>
 
-      <!-- Main column -->
+      <!-- Main -->
       <div class="grid" style="grid-template-columns:1fr">
         <div class="card section">
           <h2 class="title">Today – <span id="todayLabel"></span></h2>
@@ -74,22 +74,22 @@
       </div>
     </div>
 
-    <div class="footer">HTML Task Manager • LocalStorage • Auto carry-forward • PDF Export</div>
+    <div class="footer">HTML Task Manager • Firestore + Local fallback • Auto carry-forward • PDF Export</div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script>
-    const { jsPDF } = window.jspdf;
+  <!-- jsPDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 
-    // ===== Constants & utils =====
+  <script>
+    // ===== App (UI + local fallback) =====
+    const { jsPDF } = window.jspdf;
     const STATUS = { TODO:'todo', IN_PROGRESS:'in_progress', DEFERRED:'deferred', DONE:'done' };
-    const STATUS_LABEL = { todo:'New', in_progress:'In Progress', deferred:'Deferred', done:'Done' };
-    const LS_TASKS = 'task_manager_tasks_html_v3';
+    const LS_TASKS = 'task_manager_tasks_html_fs_v1';
 
     const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
     const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     const fromISO = (s) => { const [y,m,d] = s.split('-').map(Number); return new Date(y,m-1,d); };
-    const isSameDay = (a,b) => a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
+    const isSameDay = (a,b) => a.toDateString()===b.toDateString();
     const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
     const fmtDate = (d, opts) => new Intl.DateTimeFormat('en-GB', opts || { day:'2-digit', month:'short', year:'numeric' }).format(d);
     const fmtDay = (d) => new Intl.DateTimeFormat('en-GB', { day:'numeric'}).format(d);
@@ -97,171 +97,295 @@
 
     function loadTasks(){ try{ return JSON.parse(localStorage.getItem(LS_TASKS))||[]; }catch{return [];} }
     function saveTasks(){ localStorage.setItem(LS_TASKS, JSON.stringify(tasks)); }
+
     function normalizeToISODate(v){
-      try {
-        if (!v) return null;
-        if (typeof v === 'string') return v.slice(0,10);
-        if (v instanceof Date) return toISODate(v);
-        if (v && typeof v.toDate === 'function') return toISODate(v.toDate());
+      try{
+        if(!v) return null;
+        if(typeof v==='string') return v.slice(0,10);
+        if(v instanceof Date) return toISODate(v);
+        if(v && typeof v.toDate==='function') return toISODate(v.toDate()); // Firestore Timestamp
         return null;
-      } catch { return null; }
+      }catch{return null;}
     }
 
-    // ===== State =====
-    let tasks = [];
+    // App state
+    let tasks = [];            // local cache (used also with cloud)
     let selectedDate = new Date();
     let currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
 
-    // ===== Auto-migrate: move every non-Done past task forward day-by-day until today =====
+    // Auto-carry forward (local cache) – moves every non-Done past task forward day-by-day until today
     function migrateForwardLocal(){
       const today = new Date(); today.setHours(0,0,0,0);
-      for (const t of tasks){
-        if (t.status===STATUS.DONE) continue;
+      let changed = false;
+      for(const t of tasks){
+        if(t.status==='done' || t.status=== 'DONE') continue;
         const iso = normalizeToISODate(t.date);
-        if (!iso) continue;
+        if(!iso) continue;
         let d = fromISO(iso); d.setHours(0,0,0,0);
         while(d < today){ d = addDays(d,1); }
-        t.date = toISODate(d);
+        const newISO = toISODate(d);
+        if(newISO !== iso){ t.date = newISO; changed = true; }
       }
-      saveTasks();
+      if(changed) saveTasks();
     }
 
-    // ===== Calendar =====
-    function startOfWeek(d){
-      const r = new Date(d);
-      const day = r.getDay(); // 0=Sun
-      r.setDate(r.getDate()-day);
-      r.setHours(0,0,0,0);
-      return r;
-    }
-    function endOfWeek(d){ const r = startOfWeek(d); r.setDate(r.getDate()+6); return r; }
+    // Calendar
+    function startOfWeek(d){ const r=new Date(d); const day=r.getDay(); r.setDate(r.getDate()-day); r.setHours(0,0,0,0); return r; }
+    function endOfWeek(d){ const r=startOfWeek(d); r.setDate(r.getDate()+6); return r; }
 
     function renderCalendar(){
-      const monthLabel = document.getElementById('monthLabel');
-      const grid = document.getElementById('calGrid');
-      if(!monthLabel || !grid) return;
-
-      monthLabel.textContent = fmtMonthLabel(currentMonth);
-      grid.innerHTML = '';
-
+      document.getElementById('monthLabel').textContent = fmtMonthLabel(currentMonth);
+      const grid = document.getElementById('calGrid'); grid.innerHTML='';
       const start = startOfWeek(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1));
       const endMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 0);
       const end = endOfWeek(endMonth);
-
       for(let d=new Date(start); d<=end; d.setDate(d.getDate()+1)){
         const day = new Date(d);
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'cal-day';
-        btn.setAttribute('role','gridcell');
-        btn.setAttribute('aria-label', `Select ${fmtDate(day)}`);
-        btn.textContent = fmtDay(day);
-        if(day.getMonth() !== currentMonth.getMonth()) btn.classList.add('out');
-        if(isSameDay(day, new Date())) btn.classList.add('today');
-        if(isSameDay(day, selectedDate)) { btn.classList.add('selected'); btn.setAttribute('aria-pressed','true'); }
+        const btn = document.createElement('button'); btn.type='button'; btn.className='cal-day'; btn.textContent = fmtDay(day);
+        if(day.getMonth()!==currentMonth.getMonth()) btn.classList.add('out');
+        if(isSameDay(day,new Date())) btn.classList.add('today');
+        if(isSameDay(day,selectedDate)) btn.classList.add('selected');
         btn.addEventListener('click', ()=>{
           selectedDate = new Date(day);
           renderCalendar();
-          renderSelectedDate();
+          renderSelected();
+          // refresh cloud listener to selected date
+          if(window.cloudOnSelectDate) window.cloudOnSelectDate(toISODate(selectedDate));
         });
         grid.appendChild(btn);
       }
     }
 
-    // ===== Rendering =====
-    function tasksFor(dateISO){ return tasks.filter(t=>t.date===dateISO); }
+    function tasksFor(dateISO){ return tasks.filter(t=> normalizeToISODate(t.date) === dateISO); }
 
     function taskRow(t){
       const wrap = document.createElement('div'); wrap.className='task';
       const top = document.createElement('div'); top.className='row space-between';
       const left = document.createElement('div'); left.className='row';
-      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = t.status===STATUS.DONE;
-      cb.onchange=()=>{ t.status = cb.checked? STATUS.DONE : STATUS.TODO; saveTasks(); renderAll(); };
+      const cb = document.createElement('input'); cb.type='checkbox'; cb.checked = (t.status==='done' || t.status==='DONE');
+      cb.onchange = async ()=>{
+        const newStatus = cb.checked ? 'done' : 'todo';
+        if(window.cloudUpdateTask){ try{ await window.cloudUpdateTask(t.id, { status: newStatus }); } catch(e){ console.warn(e);} }
+        t.status = newStatus; saveTasks(); renderAll();
+      };
       const ttl = document.createElement('div'); ttl.textContent = t.title || '(No title)'; ttl.style.fontWeight='600';
-      if(t.status===STATUS.DONE) ttl.classList.add('line-through');
+      if(cb.checked) ttl.classList.add('line-through');
       left.append(cb, ttl);
-      top.append(left);
+      const del = document.createElement('button'); del.className='btn'; del.textContent='Delete';
+      del.onclick = async ()=>{
+        if(window.cloudDeleteTask){ try{ await window.cloudDeleteTask(t.id); } catch(e){ console.warn(e); } }
+        tasks = tasks.filter(x=>x.id!==t.id); saveTasks(); renderAll();
+      };
+      top.append(left, del);
       wrap.append(top);
       return wrap;
     }
 
-    function renderSelectedDate(){
-      const title = document.getElementById('selDateTitle');
-      const list  = document.getElementById('selectedList');
-      if(!title || !list) return;
-      title.textContent = `Tasks for ${fmtDate(selectedDate)}`;
-      list.innerHTML = '';
-      const items = tasksFor(toISODate(selectedDate));
-      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks for this date</div>'; return; }
+    function renderSelected(){
+      const selISO = toISODate(selectedDate);
+      document.getElementById('selDateTitle').textContent = `Tasks for ${fmtDate(selectedDate)}`;
+      const list = document.getElementById('selectedList'); list.innerHTML = '';
+      const items = tasksFor(selISO);
+      if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks</div>'; return; }
       for(const t of items){ list.appendChild(taskRow(t)); }
     }
 
     function renderToday(){
-      const today = new Date();
-      document.getElementById('todayLabel').textContent = fmtDate(today);
-      const list = document.getElementById('todayList');
-      list.innerHTML = '';
-      const items = tasksFor(toISODate(today));
+      document.getElementById('todayLabel').textContent = fmtDate(new Date());
+      const list = document.getElementById('todayList'); list.innerHTML = '';
+      const items = tasksFor(toISODate(new Date()));
       if(items.length===0){ list.innerHTML = '<div class="subtitle">No tasks for today</div>'; return; }
       for(const t of items){ list.appendChild(taskRow(t)); }
     }
 
-    function renderAll(){
-      renderCalendar();
-      renderSelectedDate();
-      renderToday();
+    function renderAll(){ renderCalendar(); renderSelected(); renderToday(); }
+
+    // UI events
+    document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
+    document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
+
+    document.getElementById('addTaskBtn').onclick = async ()=>{
+      const title = prompt('Task title?');
+      if(!title) return;
+      const newTask = { id: uid(), title, date: toISODate(selectedDate), status: 'todo' };
+      // cloud first
+      if(window.cloudAddTask){
+        try{ await window.cloudAddTask(newTask); } catch(e){ console.warn(e); tasks.push(newTask); saveTasks(); }
+      } else {
+        tasks.push(newTask); saveTasks();
+      }
+      renderAll();
+    };
+
+    document.getElementById('exportPdfBtn').onclick = async ()=>{
+      const from = prompt('From (YYYY-MM-DD)');
+      const to   = prompt('To (YYYY-MM-DD)');
+      if(!from || !to) return;
+      if(from > to){ alert('Invalid range'); return; }
+      let items = [];
+      if(window.cloudFetchRange){
+        try{ items = await window.cloudFetchRange(from, to); }
+        catch(e){ console.warn(e); items = tasks; }
+      } else {
+        items = tasks;
+      }
+      items = items
+        .map(t=> ({...t, date: normalizeToISODate(t.date)}))
+        .filter(t=> t.date && t.date>=from && t.date<=to);
+      exportTasksToPdf(items, from, to);
+    };
+
+    function exportTasksToPdf(items, from, to){
+      const doc = new jsPDF({ unit:'pt', format:'a4' });
+      const marginX = 40; let y=48;
+      doc.setFont('helvetica','bold'); doc.setFontSize(16);
+      doc.text(`Tasks Report ${from} – ${to}`, marginX, y); y+=20;
+
+      const done = items.filter(t=> (t.status==='done'||t.status==='DONE'));
+      const notDone = items.filter(t=> !(t.status==='done'||t.status==='DONE'));
+
+      const section = (title, arr)=>{
+        y+=10; doc.setFont('helvetica','bold'); doc.text(title, marginX, y); y+=12;
+        doc.setFont('helvetica','normal'); doc.setFontSize(12);
+        if(arr.length===0){ doc.text('— None —', marginX, y); y+=16; return; }
+        for(const t of arr){
+          const line = `• ${t.title || '(No title)'} — Date: ${t.date || '—'} — Status: ${t.status}`;
+          const parts = doc.splitTextToSize(line, 515);
+          if(y + parts.length*14 > 800){ doc.addPage(); y=48; }
+          doc.text(parts, marginX, y); y += parts.length*14 + 6;
+        }
+      };
+      section('Section 1: Completed within range', done);
+      section('Section 2: Not completed within range', notDone);
+      doc.save(`tasks_report_${from}_to_${to}.pdf`);
     }
 
-    // ===== Events =====
-    // Month navigation
-    document.addEventListener('click', (e)=>{
-      if(e.target && e.target.id === 'prevMonth'){
-        currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1);
-        renderCalendar();
-      }
-      if(e.target && e.target.id === 'nextMonth'){
-        currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1);
-        renderCalendar();
-      }
-    });
-
-    // Add task to selected date (prompt-based)
-    document.getElementById('addTaskBtn').onclick = ()=>{
-      const title = prompt('Task title');
-      if(!title) return;
-      tasks.push({ id: uid(), title, date: toISODate(selectedDate), status: STATUS.TODO });
-      saveTasks();
-      renderSelectedDate();
-      renderToday();
-    };
-
-    // PDF export (simple prompts for range)
-    document.getElementById('exportPdfBtn').onclick=()=>{
-      const start=prompt('Start date (YYYY-MM-DD)');
-      const end=prompt('End date (YYYY-MM-DD)');
-      if(!start||!end) return;
-      const s=fromISO(start), e=fromISO(end);
-      const done=tasks.filter(t=>t.status===STATUS.DONE && new Date(t.date)>=s && new Date(t.date)<=e);
-      const notDone=tasks.filter(t=>t.status!==STATUS.DONE && new Date(t.date)>=s && new Date(t.date)<=e);
-      const doc=new jsPDF();
-      let y=10;
-      doc.setFontSize(16); doc.text('Task Report',105,y,{align:'center'}); y+=10;
-      doc.setFontSize(12); doc.text('Completed:',10,y); y+=8;
-      done.forEach(t=>{ doc.text(`- ${t.title} (${t.date})`,15,y); y+=8; });
-      y+=6; doc.text('Not Completed:',10,y); y+=8;
-      notDone.forEach(t=>{ doc.text(`- ${t.title} (${t.date})`,15,y); y+=8; });
-      doc.save('tasks-report.pdf');
-    };
-
-    // ===== Init =====
+    // Init (local first; cloud will override)
     function init(){
       tasks = loadTasks();
-      migrateForwardLocal(); // always carry-forward older incomplete tasks up to today
-      selectedDate = new Date();
-      currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+      migrateForwardLocal();
       renderAll();
     }
     init();
+  </script>
+
+  <!-- ===== Firebase / Firestore (module) ===== -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, query, where, onSnapshot, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // === Your project config (same as before) ===
+    const firebaseConfig = {
+      apiKey: "AIzaSyDLVGDemdsjcCUjeGQwUA06NdDu5QGr9QI",
+      authDomain: "qc-task.firebaseapp.com",
+      projectId: "qc-task",
+      storageBucket: "qc-task.firebasestorage.app",
+      messagingSenderId: "811038001243",
+      appId: "1:811038001243:web:17093b369a0b12389ad77e",
+      measurementId: "G-V7WG3M18B1"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db   = getFirestore(app);
+    const tasksCol = collection(db, "tasks");
+
+    function ensureAuth() {
+      return new Promise((resolve, reject) => {
+        onAuthStateChanged(auth, async (user) => {
+          try{
+            if (user) return resolve(user);
+            await signInAnonymously(auth);
+          }catch(e){ reject(e); }
+        });
+      });
+    }
+
+    // ---- Cloud API exposed to the UI (window.*) ----
+    window.cloudAddTask = async (task) => {
+      const id = task.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+      await setDoc(doc(tasksCol, id), { ...task, id });
+      return id;
+    };
+    window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
+    window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
+
+    // Move all non-done past tasks to today (end state = today)
+    window.cloudMigrateForward = async () => {
+      const todayISO = new Date().toISOString().slice(0,10);
+      const snap = await getDocs(tasksCol);
+      const updates = [];
+      snap.forEach(dref => {
+        const t = dref.data();
+        const status = (t.status||'').toLowerCase();
+        if (status === 'done') return;
+        const iso = (typeof t.date === 'string') ? t.date.slice(0,10)
+                  : (t.date && typeof t.date.toDate==='function') ? toISODate(t.date.toDate())
+                  : null;
+        if (!iso) return;
+        if (iso < todayISO) updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
+      });
+      await Promise.all(updates);
+    };
+
+    // Range fetch for PDF
+    window.cloudFetchRange = async (fromISO, toISO) => {
+      const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
+      const snap = await getDocs(q1);
+      const items = [];
+      snap.forEach(d => items.push(d.data()));
+      items.sort((a,b)=> (a.date||'').localeCompare(b.date||''));
+      return items;
+    };
+
+    // Live listeners: selected date & today
+    let _unsubSelected = null;
+    let _unsubToday    = null;
+
+    function applyItemsForDate(dateISO, items){
+      // merge cloud items into local cache for that date, replace same-date items
+      tasks = tasks.filter(t => (normalizeToISODate(t.date)!==dateISO)).concat(items);
+      localStorage.setItem(LS_TASKS, JSON.stringify(tasks));
+    }
+
+    window.cloudOnSelectDate = (dateISO) => {
+      if (_unsubSelected) _unsubSelected();
+      const qSel = query(tasksCol, where("date","==", dateISO));
+      _unsubSelected = onSnapshot(qSel, (snap)=>{
+        const items = snap.docs.map(d=>d.data());
+        applyItemsForDate(dateISO, items);
+        // if this is today as well – re-render both
+        if (dateISO === new Date().toISOString().slice(0,10)) {
+          renderToday();
+        }
+        renderSelected();
+      });
+    };
+
+    function subscribeToday(){
+      const todayISO = new Date().toISOString().slice(0,10);
+      if (_unsubToday) _unsubToday();
+      const qToday = query(tasksCol, where("date","==", todayISO));
+      _unsubToday = onSnapshot(qToday, (snap)=>{
+        const items = snap.docs.map(d=>d.data());
+        applyItemsForDate(todayISO, items);
+        renderToday();
+      });
+      // also ensure selected date has a listener
+      window.cloudOnSelectDate(toISODate(selectedDate));
+    }
+
+    // Boot cloud
+    (async ()=>{
+      try{
+        await ensureAuth();
+        await window.cloudMigrateForward();
+        subscribeToday(); // start live listeners (today + selected)
+      }catch(e){
+        console.warn('Cloud not available, local-only mode:', e);
+      }
+    })();
   </script>
 </body>
 </html>
