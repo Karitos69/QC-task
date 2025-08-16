@@ -171,25 +171,43 @@
     function loadLastOpened(){ return localStorage.getItem(LS_LAST_OPENED); }
     function saveLastOpened(v){ localStorage.setItem(LS_LAST_OPENED, v); }
 
-    // העברה אוטומטית: כל משימה מהעבר שאינה DONE → זזה יום-אחרי-יום עד שתגיע להיום
+    // עוזר לנרמל תאריכים ישנים לכל הפורמטים
+    window.normalizeToISODate = function normalizeToISODate(v){
+      try {
+        if (!v) return null;
+        if (typeof v === 'string') {
+          const s = v.slice(0,10);
+          const [y,m,d] = s.split('-').map(Number);
+          return (y && m && d) ? `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : null;
+        }
+        if (v && typeof v.toDate === 'function') { // Firestore Timestamp
+          const d = v.toDate();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        }
+        if (v instanceof Date) {
+          return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
+        }
+        return null;
+      } catch { return null; }
+    }
+
+    // העברה אוטומטית: מקדמת כל משימה לא-בוצעה מתאריך עבר → יום-אחרי-יום עד להיום
     function migrateForwardLocal(){
       const today = new Date();
       const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const todayISO = toISODate(today);
       let changed = false;
 
       for(const t of tasks){
-        if(!t.date) continue;
         if(t.status === STATUS.DONE) continue;
-        let d = fromISO(t.date);
-        d.setHours(0,0,0,0);
+        const iso = window.normalizeToISODate(t.date);
+        if(!iso) continue;
 
-        // מקדם יום-אחרי-יום עד להיום
-        while (d < todayDate) {
-          d = addDays(d, 1);
-        }
+        let d = fromISO(iso);
+        d.setHours(0,0,0,0);
+        while (d < todayDate) d = addDays(d, 1); // מקדם יום-יום
+
         const newISO = toISODate(d);
-        if (newISO !== t.date) { t.date = newISO; changed = true; }
+        if (newISO !== iso) { t.date = newISO; changed = true; }
       }
       if (changed) saveTasks();
     }
@@ -227,7 +245,7 @@
         btn.addEventListener('click', ()=>{
           selectedDate = new Date(day);
           renderCalendar();
-          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate)); // חיבור לענן
+          if (window.onSelectDate) window.onSelectDate(toISODate(selectedDate));
         });
         grid.appendChild(btn);
       }
@@ -266,7 +284,7 @@
       });
       const title = document.createElement('div');
       title.style.fontWeight = '600';
-      title.textContent = t.title;
+      title.textContent = t.title || '(ללא כותרת)';
       if(t.status===STATUS.DONE) title.classList.add('line-through');
       left.append(cb,title);
 
@@ -401,9 +419,10 @@
         if (window.cloudFetchRange) {
           items = await window.cloudFetchRange(from, to);
         } else {
-          // localStorage
           const local = loadTasks();
-          items = local.filter(t => t.date && t.date >= from && t.date <= to);
+          items = local
+            .map(t => ({...t, date: window.normalizeToISODate(t.date)}))
+            .filter(t => t.date && t.date >= from && t.date <= to);
         }
         exportTasksToPdf(items, from, to);
         closeReport();
@@ -417,7 +436,7 @@
     document.getElementById('prevMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()-1, 1); renderCalendar(); };
     document.getElementById('nextMonth').onclick = ()=>{ currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth()+1, 1); renderCalendar(); };
 
-    // ===== Adapters לנתונים שמגיעים מהענן =====
+    // ===== Adapters מהענן =====
     window.renderTasksForToday = (items) => {
       const todayISO = toISODate(new Date());
       tasks = tasks.filter(t => t.date !== todayISO).concat(items);
@@ -443,7 +462,6 @@
       doc.setFont('helvetica','bold'); doc.setFontSize(16);
       doc.text(title, marginX, y); y += 20;
 
-      // חלוקה לקבוצות
       const done = items.filter(t => t.status === STATUS.DONE);
       const notDone = items.filter(t => t.status !== STATUS.DONE);
 
@@ -477,21 +495,20 @@
     async function init(){
       tasks = loadTasks();
 
-      const last = loadLastOpened();
-      const today = new Date();
-      const todayISO = toISODate(today);
-      if(!last){ saveLastOpened(todayISO); migrateForwardLocal(); }
-      else if(last !== todayISO){ migrateForwardLocal(); saveLastOpened(todayISO); }
+      // תמיד מריצים מיגרציה בלוקאל ומעדכנים today
+      const todayISO = toISODate(new Date());
+      migrateForwardLocal();
+      saveLastOpened(todayISO);
 
       selectedDate = new Date();
       currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
       renderAll();
 
-      // אם יש ענן, נעשה גם מיגרציה בענן ואז נאזין ליום הנוכחי
+      // ענן: התחברות + מיגרציה תמידית + האזנה להיום
       if (window.cloudEnsureReady) {
         try {
           await window.cloudEnsureReady();
-          if (window.cloudMigrateForward) await window.cloudMigrateForward(); // מקדם משימות עבר הלא-בוצעו קדימה עד להיום
+          if (window.cloudMigrateForward) await window.cloudMigrateForward();
           if (window.onSelectDate) window.onSelectDate(todayISO);
         } catch(e){
           console.warn('ענן לא זמין כרגע:', e);
@@ -523,7 +540,6 @@
     const db   = getFirestore(app);
     const tasksCol = collection(db, "tasks");
 
-    // התחברות אנונימית
     function ensureAuth() {
       return new Promise((resolve) => {
         onAuthStateChanged(auth, async (user) => {
@@ -533,7 +549,7 @@
       });
     }
 
-    // ===== חשיפת פונקציות לענן =====
+    // חשיפת פונקציות לענן
     window.cloudEnsureReady = async () => { await ensureAuth(); };
 
     window.cloudAddTask = async (task) => {
@@ -544,24 +560,44 @@
     window.cloudUpdateTask = async (id, patch) => updateDoc(doc(tasksCol, id), patch);
     window.cloudDeleteTask = async (id) => deleteDoc(doc(tasksCol, id));
 
-    // מיגרציה בענן: כל משימה מתאריך עבר שאינה DONE → נקדֵם יום-ביום עד להיום (בפועל נעדכן ל"היום")
+    // עוזר לנרמל תאריכים גם בצד המודול
+    function normalizeToISODate(v){
+      try {
+        if (!v) return null;
+        if (typeof v === 'string') {
+          const s = v.slice(0,10);
+          const [y,m,d] = s.split('-').map(Number);
+          return (y && m && d) ? `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : null;
+        }
+        if (v && typeof v.toDate === 'function') {
+          const d = v.toDate();
+          return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        }
+        if (v instanceof Date) {
+          return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
+        }
+        return null;
+      } catch { return null; }
+    }
+
+    // מיגרציה בענן: כל משימה מתאריך עבר שאינה DONE → מקודמת עד להיום (תוצאת-סוף = היום)
     window.cloudMigrateForward = async () => {
       const snap = await getDocs(tasksCol);
       const todayISO = new Date().toISOString().slice(0,10);
       const updates = [];
       snap.forEach(dref => {
         const t = dref.data();
-        if (!t.date) return;
         if (t.status === 'done') return;
-        if (t.date < todayISO) {
-          // כדי לחקות \"יום אחרי יום\", התוצאה הסופית היא היום
+        const iso = normalizeToISODate(t.date);
+        if (!iso) return;
+        if (iso < todayISO) {
           updates.push(updateDoc(doc(tasksCol, t.id), { date: todayISO }));
         }
       });
       await Promise.all(updates);
     };
 
-    // טווח תאריכים מהענן
+    // שליפת טווח תאריכים מהענן (לדו״ח)
     window.cloudFetchRange = async (fromISO, toISO) => {
       const q1 = query(tasksCol, where("date", ">=", fromISO), where("date", "<=", toISO));
       const snap = await getDocs(q1);
